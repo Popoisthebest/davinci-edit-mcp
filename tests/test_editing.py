@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from resolve_mcp.editing import Editor,approve,load_approval,prepare_media_root
+from resolve_mcp.editing import Editor,approve,approve_bootstrap,load_approval,prepare_media_root
 from resolve_mcp.protocol import BridgeError,request,response
 from resolve_mcp.transport import Mailbox,atomic_write
 from tests.edit_support import EditBridge
@@ -61,6 +61,40 @@ class EditingTests(unittest.TestCase):
 
     def test_cannot_create_while_original_project_is_open(self):
         self.bridge.api.current=self.bridge.api.protected_project
+        with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+        self.assertEqual(len(self.bridge.api.mutations),0)
+
+    def bootstrap_approval(self):
+        name='ResolveMCP_BOOT_'+'a'*32
+        self.bridge.lua.execute("fixture.current=fixture.make_bootstrap('"+name+"')")
+        self.box.bridge_id=self.bridge.instance
+        approve_bootstrap(self.box,load_approval(self.box),name,self.bridge.call('current_project'))
+
+    def test_bootstrap_grant_rejects_restart_reapproval_and_changed_identity(self):
+        self.bootstrap_approval()
+        for script in ["fixture.bootstrap.uid='another-id'", "fixture.bootstrap.name='another-name'"]:
+            self.bridge.lua.execute(script)
+            with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+            self.assertEqual(len(self.bridge.api.mutations),0)
+        self.bootstrap_approval()
+        restarted=EditBridge(self.box,'c'*32)
+        restarted.lua.execute("fixture.current=fixture.make_bootstrap('ResolveMCP_BOOT_"+'a'*32+"')")
+        with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):restarted.call('create_test_project')
+        approve(self.box,self.name,self.media_root,self.name)
+        with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+        self.assertEqual(len(self.bridge.api.mutations),0)
+
+    def test_bootstrap_close_failure_cannot_be_retried_or_create_project(self):
+        self.bootstrap_approval()
+        self.bridge.api.fail_close=True
+        with self.assertRaisesRegex(BridgeError,'API_ERROR'):self.bridge.call('create_test_project')
+        with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+        self.assertEqual(list(self.bridge.api.mutations.values()),['CloseBootstrap'])
+
+    def test_bootstrap_approval_tampering_cannot_close_project(self):
+        self.bootstrap_approval()
+        path=self.box.root/'bootstrap-approval.txt'
+        atomic_write(path,path.read_bytes().replace(b'BOOTSTRAP',b'bootSTRAP'))
         with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
         self.assertEqual(len(self.bridge.api.mutations),0)
 

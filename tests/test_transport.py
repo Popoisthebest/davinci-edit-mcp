@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from resolve_mcp.protocol import BridgeError
+from resolve_mcp.protocol import BridgeError, pack, unpack
 from resolve_mcp.transport import Mailbox, atomic_write, read_data
 from tests.support import FileBridge
 
@@ -64,6 +64,20 @@ class TransportTests(unittest.TestCase):
         start=time.monotonic()
         with self.assertRaisesRegex(BridgeError,'TIMEOUT'): self.box.call('ping')
         self.assertLess(time.monotonic()-start,1)
+
+    def test_ready_wait_authenticates_new_challenge_before_any_request(self):
+        with FileBridge(self.box):self.box.wait_ready(1)
+        self.assertEqual(self.box.bridge_id,'b'*32)
+        self.assertFalse((self.root/'request.txt').exists())
+        self.assertFalse((self.root/'start.txt').exists())
+
+    def test_old_ready_cannot_open_gate_and_unsigned_ready_fails(self):
+        atomic_write(self.root/'ready.txt',pack(self.box.key,['RMC3','READY','a'*32,'b'*32]))
+        with self.assertRaisesRegex(BridgeError,'STARTUP_TIMEOUT'):self.box.wait_ready(0.05)
+        atomic_write(self.root/'ready.txt',pack(b'x'*32,['RMC3','READY','a'*32,'b'*32]))
+        with self.assertRaisesRegex(BridgeError,'AUTH_FAILED'):self.box.wait_ready(0.05)
+        self.assertFalse((self.root/'request.txt').exists())
+        self.assertFalse((self.root/'start.txt').exists())
 
     def test_late_previous_reply_cannot_satisfy_new_request(self):
         self.box.timeout = 0.05

@@ -35,12 +35,13 @@ function M.run()
         local raw_key = native.read(root .. '\\session.key')
         assert(raw_key and #raw_key == 64,'Initialize the Python mailbox first')
         local key = crypto.unhex(raw_key)
+        local bridge_id = native.random_hex()
         stage = 'Resolve read handlers'
         local operations,writable = M.operations(runtime.resolve(),codec,key,{
-            root=root,read=native.read,canonical_file=native.canonical_file,
+            root=root,bridge_id=bridge_id,read=native.read,canonical_file=native.canonical_file,
             canonical_directory=native.canonical_directory,random_hex=native.random_hex,now=os.time,
         })
-        local bridge = module('core').new(crypto,codec,operations,key,native.random_hex(),writable)
+        local bridge = module('core').new(crypto,codec,operations,key,bridge_id,writable)
         log('Started; authenticated data channel, edits require local test-project approval')
         stage = 'mailbox polling'
         local last_request

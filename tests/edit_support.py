@@ -50,6 +50,25 @@ local function new_timeline(p,name)
 end
 f.manager.GetCurrentProject=function() return f.current end
 f.manager.GetProjectListInCurrentFolder=function() return f.project_names end
+f.make_bootstrap=function(name)
+    local p={name=name,uid='bootstrap-unique-id',clips={},folders={},jobs={},timelines=0}
+    p.GetUniqueId=function() return p.uid end
+    p.GetName=function() return p.name end
+    p.GetTimelineCount=function() return p.timelines end
+    p.GetCurrentTimeline=function() return nil end
+    p.GetRenderJobList=function() return p.jobs end
+    p.GetMediaPool=function() return {GetRootFolder=function() return {
+        GetClipList=function() return p.clips end,GetSubFolderList=function() return p.folders end} end} end
+    f.bootstrap=p
+    return p
+end
+f.manager.CloseProject=function(_,p)
+    assert(p==f.bootstrap and p==f.current,'Attempt to close protected project')
+    f.mutations[#f.mutations+1]='CloseBootstrap'
+    if f.fail_close then return false end
+    f.current=f.after_close
+    return true
+end
 f.manager.CreateProject=function(_,name)
     assert(not f.current,'Existing project still open')
     local p={uid=id('new-project-'),name=name,timelines={},settings={}}
@@ -146,7 +165,7 @@ class EditBridge(LuaBridge):
             target=safe_path(Path(path))
             assert target.is_dir() if directory else target.is_file() and target.stat().st_nlink == 1
             return str(target).replace('/','\\')
-        adapter=self.lua.table_from({'root':str(mailbox.root),'read':read,
+        adapter=self.lua.table_from({'root':str(mailbox.root),'bridge_id':instance,'read':read,
             'canonical_file':lambda path:canonical(path,False),
             'canonical_directory':lambda path:canonical(path,True),'now':time.time,
             'random_hex':lambda:secrets.token_hex(16)})

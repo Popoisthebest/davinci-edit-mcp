@@ -1,5 +1,5 @@
 -- Only a project newly created by this bridge under a local signed approval
--- may be edited. All original projects must be closed before creation.
+-- may be edited. Only an independently approved empty bootstrap can be closed.
 local M = {}
 function M.new(resolve,codec,crypto,key,adapter,invoke)
     local state = {bins={},media={},media_paths={},timelines={}}
@@ -22,7 +22,7 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         local marker = adapter.read(media .. '\\.resolve-mcp-test-media')
         local marker_body = 'RMC3\n' .. crypto.hex(media) .. '\n'
         if not marker or not crypto.equal(marker,marker_body .. crypto.hmac(key,marker_body) .. '\n') then deny('Test media marker does not match this session and directory') end
-        return {id=fields[2],name=name,media=media}
+        return {id=fields[2],expires=expiry,name=name,media=media}
     end
     local function schema(params,fields)
         for name,value in pairs(params) do
@@ -31,6 +31,39 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         for name in pairs(fields) do if params[name] == nil then deny('Missing parameter') end end
     end
     local function manager() return invoke(resolve,'GetProjectManager') end
+    local function bootstrap(grant)
+        local packet=adapter.read(adapter.root .. '\\bootstrap-approval.txt')
+        if not packet or #packet>4096 then deny('Open project has no bootstrap approval') end
+        local fields={}
+        for line in packet:gmatch('([^\n]*)\n') do fields[#fields+1]=line end
+        if #fields~=8 or table.concat(fields,'\n')..'\n'~=packet
+            or fields[1]~='RMC3' or fields[2]~='BOOTSTRAP' then deny('Invalid bootstrap approval') end
+        local body=table.concat(fields,'\n',1,7)..'\n'
+        if not crypto.equal(crypto.hmac(key,body),fields[8]) or fields[3]~=grant.id
+            or fields[5]~=adapter.bridge_id or type(adapter.bridge_id)~='string'
+            or tonumber(fields[4])~=grant.expires then deny('Bootstrap approval does not match this live edit session') end
+        local name,id=crypto.unhex(fields[6]),crypto.unhex(fields[7])
+        if not name:match('^ResolveMCP_BOOT_[0-9a-f]+$') or #name~=48 or #id==0 or #id>256 or id:find('%z') then
+            deny('Invalid bootstrap identity')
+        end
+        return {name=name,id=id}
+    end
+    local function empty_bootstrap(expected)
+        local p=invoke(manager(),'GetCurrentProject')
+        if not p or invoke(p,'GetName')~=expected.name or invoke(p,'GetUniqueId')~=expected.id then
+            deny('Bootstrap project changed; no project was closed')
+        end
+        local root=invoke(invoke(p,'GetMediaPool'),'GetRootFolder')
+        local clips,folders,jobs=invoke(root,'GetClipList'),invoke(root,'GetSubFolderList'),invoke(p,'GetRenderJobList')
+        if tonumber(invoke(p,'GetTimelineCount'))~=0 or invoke(p,'GetCurrentTimeline')
+            or type(clips)~='table' or next(clips)~=nil or type(folders)~='table' or next(folders)~=nil
+            or type(jobs)~='table' or next(jobs)~=nil then deny('Bootstrap must have no timelines, media, bins or render jobs') end
+        local active=invoke(manager(),'GetCurrentProject')
+        if not active or invoke(active,'GetUniqueId')~=expected.id or invoke(active,'GetName')~=expected.name then
+            deny('Current project changed during bootstrap inspection')
+        end
+        return p
+    end
     local function current(grant)
         local p = invoke(manager(),'GetCurrentProject')
         if not state.project or grant.id ~= state.approval or not p then deny('Create a fresh test project in this bridge session') end
@@ -81,7 +114,11 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
     operations.create_test_project = function(params)
         schema(params,{})
         local grant = approval()
-        if state.project or invoke(manager(),'GetCurrentProject') then deny('Close all projects before creating a fresh test project') end
+        if state.project or state.transition_started then deny('Fresh project creation may run only once') end
+        local open=invoke(manager(),'GetCurrentProject')
+        local boot=open and bootstrap(grant) or nil
+        if boot then empty_bootstrap(boot)
+        elseif adapter.read(adapter.root .. '\\bootstrap-approval.txt') then deny('Approved bootstrap is no longer open') end
         local names=invoke(manager(),'GetProjectListInCurrentFolder')
         if type(names)~='table' then deny('Invalid project list') end
         local count=0
@@ -90,10 +127,22 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
             if count>1000 then deny('Too many project entries to verify') end
             if type(name)=='string' and name:lower() == grant.name:lower() then deny('Test project already exists; never reuse it') end
         end
+        -- Revalidate after enumeration and immediately before any transition.
+        local fresh=approval()
+        if fresh.id~=grant.id then deny('Approval changed before transition') end
+        state.transition_started=true
+        if boot then
+            local renewed=bootstrap(fresh)
+            if renewed.id~=boot.id or renewed.name~=boot.name then deny('Bootstrap approval changed before close') end
+            local p=empty_bootstrap(boot)
+            if invoke(manager(),'CloseProject',p)~=true then error('API_ERROR:Bootstrap close failed; do not retry') end
+        end
+        if invoke(manager(),'GetCurrentProject') then deny('Unexpected current project; creation stopped') end
+        if approval().id~=grant.id then deny('Approval changed after bootstrap close') end
         local p = invoke(manager(),'CreateProject',grant.name)
         if not p then error('API_ERROR:CreateProject failed') end
         state.project,state.project_id,state.approval = p,invoke(p,'GetUniqueId'),grant.id
-        if not state.project_id or state.project_id == '' then deny('Project identity unavailable') end
+        if type(state.project_id)~='string' or state.project_id=='' or (boot and state.project_id==boot.id) then deny('Fresh project identity unavailable') end
         current(grant)
         if invoke(p,'SetSetting','timelineFrameRate','30') ~= true then error('API_ERROR:Cannot set test project frame rate') end
         return {project_id=state.project_id,name=grant.name,created=true}

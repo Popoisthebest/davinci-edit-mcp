@@ -21,13 +21,13 @@ class EditValidationWindowsTests(unittest.TestCase):
             info=prepare_validation();root=Path(info['root'])
             lua=LuaRuntime(unpack_returned_tuples=True);restricted_loader(lua)
             api=lua.execute(FAKE_RESOLVE);lua.globals().fixture=api;lua.globals().resolve=api.resolve
-            lua.execute(EDIT_API+";fixture.media_frames='90'")
+            lua.execute(EDIT_API+";fixture.media_frames='90';fixture.current=fixture.make_bootstrap('"+info['bootstrap_project_name']+"')")
             lua.globals().host_wait=time.sleep
             lua.execute('bmd={wait=function(seconds) host_wait(seconds) end}')
             session=lua.execute(Path(info['service_script']).read_text(encoding='utf-8'))
             with ThreadPoolExecutor(max_workers=1) as pool:
-                future=pool.submit(run_validation,root/'edit-info.json',info['project_name'])
-                self.assertTrue(session.run(10,'Utility'))
+                future=pool.submit(run_validation,root/'edit-info.json',info['project_name'],info['bootstrap_project_name'])
+                self.assertTrue(session.run(10,'Utility',10))
                 report=future.result(timeout=3)
             self.assertEqual(report['result'],'PASS',report)
             self.assertEqual(report['verified']['end_frame'],60)

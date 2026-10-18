@@ -1,57 +1,50 @@
-# v0.4 신규 프로젝트 실제 편집 검증
+# v0.4 임시 프로젝트에서 시작하는 실제 편집 검증
 
-Console HMAC·응답 인증과 최소 Utility 진입은 사용자 Windows 실기기에서 PASS입니다. 통신 진단을 반복하지 않고 다음 한 번의 편집 시퀀스로 진행합니다. 여기서 구현한 새 자동 서비스와 편집 기능의 실제 Free 21.1.1 호환성은 실행 결과가 나오기 전까지 미검증입니다.
+Console을 열기 위해 편집 화면이 필요하므로 시작용 빈 프로젝트와 실제 편집 프로젝트를 분리합니다. 준비 때마다 다른 정확한 이름을 생성합니다. 기존 사용자 프로젝트는 사용자가 먼저 보존하고 UI에서 나옵니다. 도구가 사용자 프로젝트를 저장·닫기·이름 변경·열기·편집하지 않습니다. 기존 통신·최소 Utility 검사는 반복하지 않습니다.
 
-## 최소 실행
+## Windows 최소 실행
 
-PR #2의 최신 소스를 사용합니다. Resolve에서 기존 작업은 사용자가 먼저 보존하고 프로젝트를 닫아 프로젝트 관리자 화면으로 이동합니다. 도구는 기존 프로젝트를 저장·닫기·전환하지 않으며 열려 있으면 편집 전에 거부합니다.
-
-저장소 루트의 PowerShell에서 준비합니다. Python 3.12만 필요합니다.
+PR #2의 최신 소스를 내려받아 저장소 루트의 PowerShell에서 실행합니다. Python 3.12만 필요합니다. 이전 edit-info.json은 형식 1이므로 재사용하지 않습니다.
 
 ```powershell
 $ev = (& py -3.12 .\scripts\EditValidation.py --prepare) | ConvertFrom-Json
-$ev.project_name
-$ev.utility_menu_script
-$ev.console_command | Set-Clipboard
+$ev.bootstrap_project_name
+$ev.bootstrap_project_name | Set-Clipboard
 ```
 
-원본 대신 전용 폴더에 3초/90프레임, 1080×1920, 정확히 30fps, 영상 전용 H.264 테스트 파일을 생성합니다. Windows에서 FFmpeg 설치·다운로드는 필요하지 않습니다. 준비 시에는 로컬 편집 승인이나 Resolve API 호출을 하지 않습니다.
+Resolve 프로젝트 관리자에서 클립보드의 정확한 이름으로 새 빈 프로젝트를 만들고 열어 둡니다. 기존 프로젝트를 복제하거나 이름을 바꾸지 않습니다. 미디어·타임라인·bin·렌더 작업을 추가하지 않습니다. 이 프로젝트의 편집 화면에서 Lua Console을 열 수 있습니다.
 
-아래 명령이 정확한 신규 테스트 프로젝트의 15분 로컬 승인을 생성하고 편집 시퀀스를 시작합니다.
+PowerShell에서 다음을 실행합니다. 두 이름 확인은 이 빈 프로젝트를 닫고, 표시된 별도의 신규 편집 프로젝트를 만들겠다는 로컬 승인입니다.
 
 ```powershell
-py -3.12 .\scripts\EditValidation.py --run (Join-Path $ev.root 'edit-info.json') --confirm-project-name $ev.project_name
+$ev.console_command | Set-Clipboard
+py -3.12 .\scripts\EditValidation.py --run (Join-Path $ev.root 'edit-info.json') --confirm-project-name $ev.project_name --confirm-bootstrap-project-name $ev.bootstrap_project_name
 ```
 
-`Edit requests ready`가 표시되면 29초 안에 한 경로만 시작합니다.
+`Waiting up to 10 minutes`가 표시되면 열린 임시 프로젝트의 Lua Console에 클립보드의 한 줄을 붙여 넣어 한 번 실행합니다. 29초 안에 실행할 필요가 없습니다. 시작 대기는 최대 10분이며 편집 승인은 아직 생성되지 않습니다. 브리지가 새 HMAC challenge에 READY로 응답한 후에만 15분 편집 승인을 생성하고, 개별 요청의 기존 29초 제한을 시작합니다. 이후 사람이 Console에서 명령을 입력할 필요 없이 전체 시퀀스를 처리합니다.
 
-- 검증된 Console을 우선 사용하려면 Lua Console에 클립보드의 한 줄을 붙여 넣어 실행합니다. 한 번만 시작하면 모든 편집 요청이 자동 처리됩니다.
-- Utility 자동 처리를 함께 확인하려면 출력된 새 `ResolveMCP_Edit_<ID>` 항목을 한 번 실행합니다. Console 경로와 동시에 시작하지 않습니다.
+Utility 자동 실행을 선택한다면 같은 임시 프로젝트가 열린 상태에서 `$ev.utility_menu_script`의 새 `ResolveMCP_Edit_<ID>` 항목을 한 번 실행합니다. Console과 동시에 실행하지 않습니다. Utility 전체 실행 및 프로젝트 전환 후 Console 지속 동작은 실기기 미검증입니다. Console 통신 자체는 기존 사용자 검증 PASS이며 새 경로 결과와 구분합니다.
 
-두 경로가 같은 HMAC dispatcher·승인·프로젝트 보호를 사용합니다. Utility가 실패하거나 아무 반응이 없으면 같은 실행에서 Console을 뒤늦게 중복 기동하거나 재요청하지 않습니다. 타임아웃 결과와 service.json을 확인하고 코드를 수정한 뒤 새 준비로 진행합니다. 준비를 반복하는 것만으로 Resolve의 부분 프로젝트를 삭제하거나 재사용하지 않습니다.
+## 결과와 보호
 
-기대 결과는 PowerShell의 `result: PASS`, `editing_test: PASS`와 `$ev.result_file`의 결과 파일입니다. 테스트 프로젝트에는 파란 배경/노란 도형의 짧은 클립이 영상 트랙 1의 0–60 프레임에 놓입니다. 실제 재생/디코딩 화면은 사용자가 한 번 확인할 수 있으며 API 조회 성공이 픽셀/오디오 검증을 대신하지 않습니다.
+기대 결과는 PowerShell의 `result: PASS`, `editing_test: PASS` 및 `$ev.result_file`의 보고서입니다. 자동 시퀀스는 다음과 같습니다.
 
-## 자동 시퀀스와 보호
+1. 인증된 현재 프로젝트 조회에서 생성된 임시 이름·고유 ID·타임라인 0개를 확인합니다.
+2. 임시 프로젝트 전환 승인을 별도로 서명합니다. 승인 ID·만료·현재 브리지 ID·프로젝트 이름·고유 ID에 묶습니다. 접두사만으로 기존 프로젝트를 채택하지 않습니다.
+3. Lua가 다시 현재 이름·ID와 빈 상태(타임라인·미디어·하위 bin·렌더 작업 없음)를 확인합니다. 대상 이름 충돌 검사 뒤 전환 직전 재검사합니다. 누락된 API·잘못된 반환형·다른 프로젝트·승인 변경은 닫기 전에 거부합니다.
+4. 승인된 빈 임시 프로젝트만 `CloseProject`로 닫습니다. `SaveProject`, 삭제, rename, `LoadProject`는 수행하지 않습니다. 닫기 실패나 예상치 못한 현재 프로젝트는 생성 전에 중단하며 전환을 재시도하지 않습니다.
+5. 별도 `ResolveMCP_TEST_probe_<ID>` 신규 프로젝트·bin을 만들고 전용 테스트 파일을 가져옵니다. 이 브리지가 방금 만든 ID만 이후 편집 대상으로 허용합니다.
+6. 1080×1920 / 30fps / 시작 프레임 0 타임라인을 만들고, 소스 [3,63)의 60프레임을 V1의 0프레임에 배치합니다. 설정·미디어/타임라인/프로젝트 ID·0–60 프레임·좌우 여유 3/27프레임을 API로 재조회합니다.
+7. 새 편집 프로젝트만 저장하고, 두 승인부터 폐기한 뒤 서비스 stop을 요청합니다. 임시 프로젝트와 새 편집 프로젝트는 삭제하지 않습니다.
 
-서명된 요청으로 다음 순서를 한 번만 실행합니다.
+합성 영상은 자체 생성한 3초/90프레임, 1080×1920, 정확히 30fps의 영상 전용 H.264 파일입니다. 원본이나 다운로드·FFmpeg 설치 없이 고정 SHA256 리소스를 새 전용 미디어 폴더에만 복원합니다. 사용자가 새 프로젝트에서 파란 배경·노란 도형의 클립 재생을 확인할 수 있습니다. API 조회 성공과 실제 픽셀/디코딩 검증은 별개입니다.
 
-1. 열려 있는 프로젝트가 없는지 조회합니다. 기존 프로젝트가 열려 있으면 무변경 종료합니다.
-2. `ResolveMCP_TEST_probe_<UUID>` 신규 프로젝트와 전용 bin을 만듭니다.
-3. 세션 HMAC marker가 있는 전용 미디어 폴더의 생성 파일만 가져옵니다.
-4. 1080×1920, 30fps, 시작 프레임 0의 신규 타임라인을 만들고 실제 설정을 재검사합니다.
-5. 소스 [3,63), 60프레임을 V1의 0프레임에 배치합니다. 배치 전 계획 검사와 배치 후 getter 검사를 수행합니다.
-6. timeline_items와 프로젝트를 다시 조회해 미디어 ID·프로젝트/타임라인 ID·트랙·0–60 프레임·좌우 여유 3/27프레임을 검증합니다.
-7. 이 신규 프로젝트만 저장하고 승인 폐기·서비스 stop을 요청합니다.
+HMAC, 허용 명령, 요청 만료·중복·브리지 ID, 양쪽 로컬 승인, 세션 소유권, 경로/ACL/reparse/hardlink 보호와 감사 로그를 유지합니다. 새 일반 프로젝트 열기·닫기 MCP 도구는 추가하지 않습니다. 기존 무프로젝트 상태의 저수준 신규 생성 경로도 유지하지만 이 검증기는 정확한 임시 프로젝트를 요구합니다.
 
-기존 HMAC, 요청 만료/중복, 양쪽 로컬 승인, 신규 프로젝트 ID, 타임라인/미디어 세션 소유권, 경로/ACL/reparse/hardlink, 감사 로그를 유지합니다. 편집 생성 검사도 혼합 문자열/숫자 프로젝트 목록을 안전하게 확인하며 기존 문자열 이름 충돌은 계속 거부합니다. 승인되지 않은 기존 프로젝트를 닫거나 이름을 바꾸지 않습니다.
+준비 대기 만료는 `STARTUP_TIMEOUT` / `editing_test: NOT_RUN`이며 편집 요청을 발행하지 않습니다. 편집 시작 후 실패/시간 초과에서는 다음 편집·저장을 중단하고 `failed_stage`, `error_code`, `may_have_changes`를 기록합니다. 같은 edit-info의 재실행은 거부합니다. 실행 여부가 불확실한 요청을 재전송하거나 자동 undo·삭제·원본 복원을 하지 않습니다. 새 부분 프로젝트를 보존해 확인합니다. 이미 진행 중인 Resolve API 호출은 강제 취소할 수 없습니다.
 
-실패/시간 초과에서는 다음 편집과 자동 저장을 중단하고 승인부터 폐기합니다. `failed_stage`, `error_code`, `may_have_changes`와 감사 로그를 남깁니다. 실행 여부가 불확실한 편집은 재시도·삭제·undo하지 않습니다. 같은 edit-info의 재실행은 started.json으로 거부합니다. 이미 진행 중인 API를 취소할 수 없으므로 새 부분 프로젝트를 보존해 확인합니다.
+## 검증 상태와 복구
 
-## 검증·지원 상태와 복구
+자동 검사는 빈 임시 프로젝트의 안전 전환·전체 편집·원본 열림 거부·빈 상태 검사·프로젝트 교체·재시작/승인 교체·실패 후 무재시도·오래되거나 위조된 READY를 검사합니다. Windows CI는 실제 Win32/FFI/ACL/canonical 경로와 Python↔Lua HMAC 교환을 사용하지만 Resolve API는 모의입니다. 실제 Windows Resolve의 전환·편집은 사용자 실행 전까지 NOT_RUN입니다. 렌더·오디오·자막·삭제는 이번 범위 밖입니다.
 
-자동 검사는 모의 Resolve에서 전체 시퀀스, 원본 열림 거부, 이름 충돌·혼합형 목록, 배치 실패 후 중단/무재시도/무저장, 승인 폐기와 한 번만 실행을 확인합니다. Windows CI는 실제 FFI/Win32/ACL/canonical 경로와 Python↔Lua HMAC 요청으로 같은 시퀀스를 수행하지만 Resolve API는 모의입니다. 사용자 PC의 실제 편집 성공은 아직 NOT_RUN입니다.
-
-생성 소재는 이 저장소에서 FFmpeg의 color/drawbox로 만든 자체 합성 영상입니다. 원본 경로나 외부 저작물은 포함하지 않습니다. base64 리소스의 SHA256을 고정해 새 전용 폴더에만 복원합니다. 내보내기·렌더·오디오·자막·컷/삭제는 이번 검증에 포함하지 않습니다.
-
-변경 파일: edit_validation.py, EditValidation.py, fixtures/portrait30.mp4.b64, pyproject.toml, edits.lua 및 회귀 테스트입니다. 공통 서비스 변경은 automatic-service.md에 있습니다. 복구 시 생성된 신규 테스트 프로젝트는 사용자 UI에서 보존/정리하고 새 launcher·전용 폴더만 정리합니다. 원본 프로젝트/미디어와 이전 통신 검증 결과는 그대로 둡니다. PR #1/#2는 병합하지 않습니다.
+변경 파일: console.lua, transport.py, bundle.py, edits.lua, editing.py, edit_validation.py, EditValidation.py 및 회귀 테스트입니다. 기존 설치본은 덮어쓰지 않습니다. 복구는 새 launcher와 전용 폴더만 정리하고, 생성된 두 테스트 프로젝트는 사용자가 UI에서 보존/정리합니다. 기존 프로젝트와 원본에는 접근하지 않습니다. PR #1/#2는 병합하지 않습니다.

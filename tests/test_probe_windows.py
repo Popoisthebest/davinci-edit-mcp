@@ -229,3 +229,21 @@ class ProbeWindowsTests(unittest.TestCase):
             status=inspect_connection(root/'connection-info.json')
             self.assertEqual(status['service']['state'],'LIMIT_REACHED')
             self.assertEqual(status['console']['saved_response'],'AUTHENTICATED_MATCH')
+
+    def test_real_win32_startup_gate_precedes_request_deadline(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        with TemporaryDirectory() as temporary:
+            box=Mailbox(Path(temporary)/'mailbox',timeout=1)
+            session=self.module('console').new(str(box.root))
+            self.lua.globals().host_wait=time.sleep
+            self.lua.execute('bmd={wait=function(seconds) host_wait(seconds) end}')
+            def client():
+                box.wait_ready(5)
+                self.assertFalse((box.root/'request.txt').exists())
+                return box.call('stop')
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future=pool.submit(client)
+                self.assertTrue(session.run(3,'Console',5))
+                self.assertTrue(future.result(timeout=2)['stopped'])
+            self.assertFalse((box.root/'start.txt').exists())

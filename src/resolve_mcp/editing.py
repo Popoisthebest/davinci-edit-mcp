@@ -81,6 +81,27 @@ def load_approval(mailbox: Mailbox) -> Approval:
         raise BridgeError('WRITE_DENIED', 'Missing, revoked, expired or invalid local approval') from error
 
 
+def approve_bootstrap(mailbox: Mailbox, grant: Approval, expected_name: str, project: dict) -> None:
+    """Permit closing only the explicitly confirmed, freshly queried bootstrap.
+
+    Separate from edit approval: bound to its ID, expiry and live bridge instance.
+    Resolve independently checks identity and emptiness immediately before close.
+    """
+    identifier = project.get('project_id')
+    if (not re.fullmatch(r'ResolveMCP_BOOT_[0-9a-f]{32}', expected_name)
+        or project.get('project_open') is not True or project.get('name') != expected_name
+        or not isinstance(identifier, str) or not 0 < len(identifier.encode('utf-8')) <= 256
+        or '\0' in identifier or str(project.get('timeline_count')) != '0'
+        or mailbox.bridge_id is None):
+        raise BridgeError('WRITE_DENIED', 'Open only the exact newly prepared empty bootstrap project')
+    with mailbox._locked():
+        if load_approval(mailbox) != grant:
+            raise BridgeError('WRITE_DENIED', 'Edit approval changed before bootstrap authorization')
+        atomic_write(mailbox.root / 'bootstrap-approval.txt', pack(mailbox.key,
+            ['RMC3', 'BOOTSTRAP', grant.identifier, str(grant.expires), mailbox.bridge_id,
+             expected_name.encode('utf-8').hex(), identifier.encode('utf-8').hex()]))
+
+
 class Editor(Mailbox):
     def prepare(self, op: str, params: dict) -> dict:
         if op not in WRITE_OPS:
