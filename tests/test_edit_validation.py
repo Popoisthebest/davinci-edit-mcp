@@ -27,7 +27,7 @@ class EditValidationTests(unittest.TestCase):
         self.boot='ResolveMCP_BOOT_'+self.id
         self.info=self.root/'edit-info.json'
         command=console_command(self.service)
-        (self.root/'LuaConsoleCommand.txt').write_text(command+'\n')
+        atomic_write(self.root/'LuaConsoleCommand.txt',(command+'\n').encode('ascii'))
         self.info.write_text(json.dumps({'edit_validation_format':3,'run_id':self.id,'root':str(self.root),
             'console_command':command,'console_command_file':str(self.root/'LuaConsoleCommand.txt'),
             'transition_file':str(self.editor.root/'project-transition.txt'),
