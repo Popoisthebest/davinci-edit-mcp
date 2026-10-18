@@ -43,9 +43,12 @@ def console_bundle(root: Path, *, enable_edits: bool = False) -> str:
     return loader_source(names)+f"return module('console').new({lua_string(str(root))},{enabled})\n"
 
 
-def utility_launcher(payload: Path, identifier: str, seconds: int = 180) -> str:
+def utility_launcher(payload: Path, identifier: str, seconds: int = 180, *, startup_seconds: int | None = None) -> str:
     utility_path_check(identifier) # validate the fixed build-time ID
     if type(seconds) is not int or not 1 <= seconds <= 600:raise ValueError('Invalid service duration')
+    if startup_seconds is not None and (type(startup_seconds) is not int or not 1 <= startup_seconds <= 600):
+        raise ValueError('Invalid startup duration')
+    startup='' if startup_seconds is None else ','+str(startup_seconds)
     # Only this trusted, owner-protected absolute payload is loaded. Never read
     # code paths from requests. A separate chunk makes compile errors catchable.
     return (f'if type(print)=="function" then pcall(print,"RMC_AUTO_ENTER_{identifier}") end\n'
@@ -55,7 +58,7 @@ def utility_launcher(payload: Path, identifier: str, seconds: int = 180) -> str:
             'assert(chunk,"PAYLOAD_COMPILE: "..tostring(why))\n'
             'if type(getfenv)=="function" and type(setfenv)=="function" then setfenv(chunk,getfenv(1)) end\n'
             'local session=chunk()\n'
-            f'session.run({seconds},"Utility")\n'
+            f'session.run({seconds},"Utility"{startup})\n'
             'end)\n'
             'if not ok then error("ResolveMCP bootstrap: "..tostring(err),0) end\n')
 

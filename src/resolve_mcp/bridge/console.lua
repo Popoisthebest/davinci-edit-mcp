@@ -11,13 +11,14 @@ function M.new(root,enable_edits)
     local raw_key=native.read(root .. '\\session.key')
     assert(raw_key and #raw_key == 64,'Prepare the dedicated Console mailbox first')
     local key=crypto.unhex(raw_key)
+    local bridge_id=native.random_hex()
     local operations,writable
     if enable_edits == true then
         operations,writable=module('bridge').operations(runtime.resolve(),codec,key,{
-            root=root,read=native.read,canonical_file=native.canonical_file,
+            root=root,bridge_id=bridge_id,read=native.read,canonical_file=native.canonical_file,
             canonical_directory=native.canonical_directory,random_hex=native.random_hex,now=os.time})
     else operations=module('reads').new(runtime.resolve(),codec) end
-    local core=module('core').new(crypto,codec,operations,key,native.random_hex(),writable)
+    local core=module('core').new(crypto,codec,operations,key,bridge_id,writable)
     local closed=false
     local owns_loop=false
     local last_served
@@ -52,10 +53,12 @@ function M.new(root,enable_edits)
     end
     -- Explicit bounded host service. Nothing runs automatically on new().
     -- Utility and Console share this dispatcher and the same mailbox mutex.
-    function session.run(seconds,context)
+    function session.run(seconds,context,startup_seconds)
         seconds=seconds or 180;context=context or 'Console'
         assert(type(seconds)=='number' and seconds%1==0 and seconds>=1 and seconds<=600,'Service limit is 1-600 seconds')
         assert(context=='Console' or context=='Utility','Invalid service context')
+        assert(startup_seconds==nil or (type(startup_seconds)=='number' and startup_seconds%1==0
+            and startup_seconds>=1 and startup_seconds<=600),'Startup limit is 1-600 seconds')
         assert(not closed and not owns_loop,'Service is closed or already running')
         assert(bmd and type(bmd.wait)=='function','Host bmd.wait unavailable; manual step remains usable')
         local release=native.acquire(crypto.sha256(root))
@@ -66,6 +69,31 @@ function M.new(root,enable_edits)
                 mode=session.mode,limit_seconds=seconds,context_origin='launcher label',time=os.time()}))
         end
         local ok,err=pcall(function()
+            if startup_seconds then
+                status('WAITING_FOR_CLIENT')
+                local until_ready=native.monotonic_seconds()+startup_seconds
+                local nonce
+                while not nonce and native.monotonic_seconds()<until_ready do
+                    assert(native.read(root .. '\\session.key')==raw_key,'Session changed during startup')
+                    local packet=native.read(root .. '\\start.txt')
+                    if packet and #packet<=1024 then
+                        local fields={}
+                        for line in packet:gmatch('([^\n]*)\n') do fields[#fields+1]=line end
+                        if #fields==5 and table.concat(fields,'\n')..'\n'==packet
+                            and fields[1]=='RMC3' and fields[2]=='START' then
+                            local body=table.concat(fields,'\n',1,4)..'\n'
+                            local expiry=tonumber(fields[4])
+                            if crypto.equal(crypto.hmac(key,body),fields[5]) and #fields[3]==32
+                                and not fields[3]:find('[^0-9a-f]') and expiry and expiry%1==0
+                                and expiry>=os.time() and expiry<=os.time()+600 then nonce=fields[3] end
+                        end
+                    end
+                    if not nonce then bmd.wait(0.02) end
+                end
+                assert(nonce,'STARTUP_TIMEOUT: no authenticated client; no requests dispatched')
+                local body=table.concat({'RMC3','READY',nonce,bridge_id},'\n')..'\n'
+                native.write(root .. '\\ready.txt',body..crypto.hmac(key,body)..'\n')
+            end
             local deadline=native.monotonic_seconds()+seconds
             status('RUNNING')
             while not closed and native.monotonic_seconds()<deadline do

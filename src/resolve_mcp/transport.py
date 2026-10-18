@@ -10,7 +10,7 @@ import stat
 import threading
 import time
 
-from .protocol import BridgeError, MAX_PACKET, request, response
+from .protocol import BridgeError, IDENTIFIER, MAX_PACKET, pack, unpack, request, response
 from .permissions import protect_directory
 
 READ_OPS = frozenset({"ping", "current_project", "current_timeline", "projects",
@@ -214,10 +214,44 @@ class Mailbox:
                 self._exchange("ping", {})
             return self._exchange(op, params)
 
+    def wait_ready(self, timeout: float = 600) -> None:
+        """Authenticate a fresh service before starting any RPC deadline.
+
+        This startup gate has no Resolve operation or editing authorization.
+        An old READY, diagnostic service.json, or unsigned file cannot open it.
+        """
+        if not 0 < timeout <= 600:
+            raise ValueError('Startup wait must be between 0 and 600 seconds')
+        with self._locked():
+            if self._read_key() != self.key:
+                raise BridgeError('SESSION_CHANGED', 'Session rotated before startup')
+            challenge = secrets.token_hex(16)
+            start = safe_path(self.root / 'start.txt')
+            atomic_write(start, pack(self.key, ['RMC3', 'START', challenge, str(int(time.time()) + 600)]))
+            until = time.monotonic() + timeout
+            try:
+                while time.monotonic() < until:
+                    if self._read_key() != self.key:
+                        raise BridgeError('SESSION_CHANGED', 'Session rotated during startup')
+                    try:
+                        _, kind, nonce, instance = unpack(self.key, read_data(self.root / 'ready.txt', 1025), 4)
+                    except FileNotFoundError:
+                        time.sleep(0.02)
+                        continue
+                    if kind == 'READY' and nonce == challenge:
+                        if not IDENTIFIER.fullmatch(instance):
+                            raise BridgeError('INVALID_RESPONSE', 'Invalid ready bridge identifier')
+                        self.bridge_id = instance
+                        return
+                    time.sleep(0.02)
+                raise BridgeError('STARTUP_TIMEOUT', 'No authenticated service ready; no edit request was published')
+            finally:
+                start.unlink(missing_ok=True)
+
     def rotate_session(self) -> None:
         with self._locked():
             self.key = secrets.token_bytes(32)
             atomic_write(self.root / "session.key", self.key.hex().encode("ascii"))
-            for name in ("request.txt", "response.txt"):
+            for name in ("request.txt", "response.txt", "start.txt", "ready.txt"):
                 safe_path(self.root / name).unlink(missing_ok=True)
             self.bridge_id = None

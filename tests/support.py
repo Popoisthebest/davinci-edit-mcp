@@ -7,6 +7,7 @@ import time
 from lupa.luajit21 import LuaRuntime
 
 from resolve_mcp.transport import atomic_write, read_data
+from resolve_mcp.protocol import pack, unpack
 from resolve_mcp.bundle import loader_source
 
 BRIDGE = Path(__file__).resolve().parents[1] / 'src/resolve_mcp/bridge'
@@ -84,6 +85,15 @@ class FileBridge:
                 self.ready.set()
                 previous = None
                 while not self.stop.is_set():
+                    try:
+                        _, kind, nonce, _ = unpack(self.mailbox.key, read_data(self.mailbox.root/'start.txt'), 4)
+                        if kind == 'START':
+                            ready = pack(self.mailbox.key, ['RMC3','READY',nonce,self.instance])
+                            if ready != getattr(self,'last_ready',None):
+                                atomic_write(self.mailbox.root/'ready.txt',ready)
+                                self.last_ready = ready
+                    except FileNotFoundError:
+                        pass
                     try:
                         packet = read_data(self.mailbox.root / 'request.txt')
                     except FileNotFoundError:

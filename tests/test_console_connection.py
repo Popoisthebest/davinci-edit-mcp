@@ -9,7 +9,7 @@ from lupa.luajit21 import LuaError
 from lupa.lua51 import LuaRuntime as Lua51Runtime, LuaError as Lua51Error
 from resolve_mcp.bundle import BRIDGE, console_bundle, utility_path_check, utility_launcher
 from resolve_mcp.console_connection import inspect_connection, load_connection, ping_connection
-from resolve_mcp.protocol import BridgeError, pack, request, response
+from resolve_mcp.protocol import BridgeError, pack, unpack, request, response
 from tests.support import LuaBridge
 
 
@@ -126,6 +126,36 @@ class ConsoleSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(LuaError,'Automatic service stopped'):self.session.run(1,'Console')
         self.assertEqual(len(self.releases),1)
         self.assertEqual(self.session.step(),(False,'CLOSED'))
+
+    def test_startup_gate_waits_without_dispatch_and_authenticates_fresh_ready(self):
+        challenge='d'*32
+        def client():
+            if self.elapsed>=35 and self.root+'\\start.txt' not in self.files:
+                self.files[self.root+'\\start.txt']=pack(self.key,['RMC3','START',challenge,'700']).decode()
+            if self.root+'\\ready.txt' in self.files:
+                self.queue('stop',rid='c'*32,instance=self.id)
+        self.automatic_host(client)
+        self.assertTrue(self.session.run(1,'Console',40))
+        ready=unpack(self.key,self.files[self.root+'\\ready.txt'].encode(),4)
+        self.assertEqual(ready,['RMC3','READY',challenge,self.id])
+        self.assertTrue(self.read_response('c'*32)[1]['stopped'])
+        self.assertEqual(len(self.releases),1)
+
+    def test_startup_rejects_forged_or_expired_start_and_dispatches_nothing(self):
+        self.queue()
+        self.files[self.root+'\\start.txt']=pack(b'x'*32,['RMC3','START','d'*32,'700']).decode()
+        self.automatic_host(lambda:None)
+        with self.assertRaisesRegex(LuaError,'STARTUP_TIMEOUT'):self.session.run(1,'Utility',1)
+        self.assertNotIn(self.root+'\\ready.txt',self.files)
+        self.assertNotIn(self.root+'\\response.txt',self.files)
+        self.assertEqual(len(self.releases),1)
+
+    def test_expired_signed_start_cannot_enable_dispatch(self):
+        self.queue()
+        self.files[self.root+'\\start.txt']=pack(self.key,['RMC3','START','d'*32,'99']).decode()
+        self.automatic_host(lambda:None)
+        with self.assertRaisesRegex(LuaError,'STARTUP_TIMEOUT'):self.session.run(1,'Console',1)
+        self.assertNotIn(self.root+'\\response.txt',self.files)
 
 
 class UtilityPathTests(unittest.TestCase):
