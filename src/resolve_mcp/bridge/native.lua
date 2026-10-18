@@ -6,6 +6,7 @@ assert(ffi.os == 'Windows', 'Windows LuaJIT is required by the live bridge')
 ffi.cdef[[
 unsigned long GetLastError(void);
 unsigned long GetCurrentProcessId(void);
+unsigned long long GetTickCount64(void);
 int CreateDirectoryW(const wchar_t*,void*);
 unsigned long GetFileAttributesW(const wchar_t*);
 int MultiByteToWideChar(unsigned int,unsigned long,const char*,int,wchar_t*,int);
@@ -58,6 +59,7 @@ function M.ffi_call_test()
     assert(K.GetCurrentProcessId() > 0,'Win32 FFI call failed')
     return true
 end
+function M.monotonic_seconds() return tonumber(K.GetTickCount64())/1000 end
 function M.random_hex()
     local buffer = ffi.new('unsigned char[16]')
     assert(A.SystemFunction036(buffer,16) ~= 0, 'Secure random source unavailable')

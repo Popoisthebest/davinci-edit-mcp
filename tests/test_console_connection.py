@@ -7,7 +7,7 @@ import unittest
 
 from lupa.luajit21 import LuaError
 from lupa.lua51 import LuaRuntime as Lua51Runtime, LuaError as Lua51Error
-from resolve_mcp.bundle import BRIDGE, console_bundle, utility_path_check
+from resolve_mcp.bundle import BRIDGE, console_bundle, utility_path_check, utility_launcher
 from resolve_mcp.console_connection import inspect_connection, load_connection, ping_connection
 from resolve_mcp.protocol import BridgeError, pack, request, response
 from tests.support import LuaBridge
@@ -96,8 +96,49 @@ class ConsoleSessionTests(unittest.TestCase):
         self.assertTrue(self.read_response()[1]['stopped'])
         self.assertEqual(self.session.step(),(False,'CLOSED'))
 
+    def automatic_host(self,callback):
+        self.elapsed=0.0
+        self.native.monotonic_seconds=lambda:self.elapsed
+        def wait(seconds):
+            self.elapsed+=seconds
+            callback()
+        self.lua.globals().host_wait=wait
+        self.lua.execute('bmd={wait=function(seconds) host_wait(seconds) end}')
+
+    def test_bounded_service_processes_multiple_requests_until_signed_stop(self):
+        self.queue()
+        self.automatic_host(lambda:self.queue('stop',rid='c'*32,instance=self.id))
+        self.assertTrue(self.session.run(2,'Utility'))
+        self.assertTrue(self.read_response('c'*32)[1]['stopped'])
+        self.assertEqual(len(self.releases),1)
+        status=json.loads(self.files[self.root+'\\service.json'])
+        self.assertEqual((status['state'],status['context']),('STOPPED','Utility'))
+
+    def test_bounded_service_does_not_rewrite_unchanged_request_and_expires(self):
+        self.queue();self.automatic_host(lambda:None)
+        self.assertTrue(self.session.run(1,'Console'))
+        self.assertEqual(self.writes.count(self.root+'\\response.txt'),1)
+        self.assertEqual(json.loads(self.files[self.root+'\\service.json'])['state'],'LIMIT_REACHED')
+        self.assertEqual(self.session.step(),(False,'CLOSED'))
+
+    def test_automatic_failure_stops_and_releases_mutex_without_retry(self):
+        self.queue();self.automatic_host(lambda:None);self.fail_write=True
+        with self.assertRaisesRegex(LuaError,'Automatic service stopped'):self.session.run(1,'Console')
+        self.assertEqual(len(self.releases),1)
+        self.assertEqual(self.session.step(),(False,'CLOSED'))
+
 
 class UtilityPathTests(unittest.TestCase):
+    def test_tiny_fixed_launcher_catches_payload_compile_failure(self):
+        lua=Lua51Runtime(unpack_returned_tuples=True)
+        lua.execute('print=nil;loadfile=function(path) return nil,"synthetic compile error" end')
+        source=utility_launcher(Path('C:/private/서비스.lua'),'a'*32)
+        self.assertTrue(source.isascii())
+        self.assertLessEqual(len(source.splitlines()),10)
+        with self.assertRaisesRegex(Lua51Error,'PAYLOAD_COMPILE: synthetic compile error'):lua.execute(source)
+        lua.execute('loadfile=nil')
+        with self.assertRaisesRegex(Lua51Error,'BOOTSTRAP_LOADFILE_UNAVAILABLE'):lua.execute(source)
+
     def test_two_lines_raise_unique_host_error_without_any_libraries_or_ui(self):
         identifier='a'*32
         lua=Lua51Runtime(unpack_returned_tuples=True)
@@ -108,12 +149,12 @@ class UtilityPathTests(unittest.TestCase):
         with self.assertRaisesRegex(Lua51Error,'RMC_UTILITY_ERROR_'+identifier):lua.execute(source)
         with self.assertRaises(ValueError):utility_path_check('../unsafe')
 
-    def test_console_artifact_excludes_edit_dispatcher_and_wait_loop(self):
+    def test_console_artifact_excludes_edit_dispatcher_and_does_not_start_loop(self):
         source=console_bundle(Path('C:/fixture/mailbox'))
         self.assertNotIn('writes_require_local_approval',source)
         self.assertNotIn("module('edits')",source)
-        self.assertNotIn('bmd.wait',source)
-        self.assertNotIn('while not bridge.stopped',source)
+        self.assertTrue(source.rstrip().endswith(',false)'))
+        self.assertNotIn('.run(180)',source)
 
 
 class ConnectionInspectionTests(unittest.TestCase):

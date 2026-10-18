@@ -212,3 +212,20 @@ class ProbeWindowsTests(unittest.TestCase):
             report=inspect_connection(root/'connection-info.json')
             self.assertEqual(report['utility']['log_scan'],'MARKER_OBSERVED')
             self.assertEqual(report['utility']['menu_script_integrity'],'MATCH')
+
+    def test_automatic_read_service_polls_python_request_and_releases_mutex_at_limit(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{
+            'LOCALAPPDATA':temporary,'APPDATA':str(Path(temporary)/'roaming')}):
+            info=prepare_connection(automatic=True);root=Path(info['root'])
+            self.lua.globals().host_wait=time.sleep
+            self.lua.execute('bmd={wait=function(seconds) host_wait(seconds) end}')
+            session=self.lua.execute(Path(info['console_script']).read_text(encoding='utf-8'))
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future=pool.submit(ping_connection,root/'connection-info.json')
+                self.assertTrue(session.run(3,'Utility'))
+                self.assertEqual(future.result(timeout=2)['authenticated_ping'],'PASS')
+            status=inspect_connection(root/'connection-info.json')
+            self.assertEqual(status['service']['state'],'LIMIT_REACHED')
+            self.assertEqual(status['console']['saved_response'],'AUTHENTICATED_MATCH')

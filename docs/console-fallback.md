@@ -1,5 +1,7 @@
 # Utility 최소 경로 검사와 Console 대체 연결
 
+후속 사용자 실기기 결과: Console HMAC·authenticated_ping·저장 응답 인증과 최소 Utility 표식이 모두 확인됐습니다. 통신 진단을 마무리하며 아래 과거 절차를 반복하지 않습니다. [현재 증거](verification-status.md)와 [자동 서비스](automatic-service.md)를 기준으로 다음 편집 단계로 진행합니다.
+
 ## 현재 판단
 
 Windows 11 / Resolve 21.1.1 Free에서 Console 전체 PASS가 확인됐습니다. 사용자는 Resolve를 완전히 종료·재시작하고 기존 브리지를 실행하지 않은 상태에서도 v3 Utility가 무반응임을 확인했습니다. 같은 v2/v3 검사, 기존 브리지 종료, Resolve 재시작을 다시 요구하지 않습니다. 기존 상주 브리지가 이번 무반응을 설명한다는 가설은 이 증거로 약해졌습니다.

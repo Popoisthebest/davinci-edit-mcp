@@ -6,13 +6,13 @@ from pathlib import Path
 import re
 import uuid
 
-from .bundle import console_bundle, lua_string, utility_path_check
+from .bundle import console_bundle, lua_string, utility_path_check, utility_launcher
 from .permissions import protect_directory
 from .protocol import BridgeError, response, unpack
 from .transport import Mailbox, read_data, safe_path
 
 
-def prepare_connection() -> dict:
+def prepare_connection(*, automatic: bool = False) -> dict:
     if os.name != 'nt' or not os.environ.get('LOCALAPPDATA') or not os.environ.get('APPDATA'):
         raise RuntimeError('Prepare this connection on Windows with LOCALAPPDATA and APPDATA')
     identifier=uuid.uuid4().hex
@@ -22,11 +22,12 @@ def prepare_connection() -> dict:
     script=root/'ConsoleReadOnly.lua'
     script.write_text(console_bundle(mailbox.root),encoding='utf-8',newline='\n')
     micro=root/'UtilityPath.lua'
-    micro.write_text(utility_path_check(identifier),encoding='ascii',newline='\n')
+    micro.write_text(utility_launcher(script,identifier) if automatic else utility_path_check(identifier),encoding='ascii',newline='\n')
     support=Path(os.environ['APPDATA'])/'Blackmagic Design'/'DaVinci Resolve'/'Support'
-    menu=safe_path(support/'Fusion'/'Scripts'/'Utility'/f'ResolveMCP_Path_{identifier[:8]}.lua')
+    label='Auto' if automatic else 'Path'
+    menu=safe_path(support/'Fusion'/'Scripts'/'Utility'/f'ResolveMCP_{label}_{identifier[:8]}.lua')
     menu.parent.mkdir(parents=True,exist_ok=True)
-    with menu.open('x',encoding='ascii',newline='\n') as stream:stream.write(utility_path_check(identifier))
+    with menu.open('x',encoding='ascii',newline='\n') as stream:stream.write(micro.read_text(encoding='ascii'))
     info={'connection_format':1,'connection_id':identifier,'root':str(root),
           'mailbox':str(mailbox.root),'console_script':str(script),'utility_menu_script':str(menu),
           'log_directory':str(support/'logs'),
@@ -35,6 +36,10 @@ def prepare_connection() -> dict:
           'sha256':{'Console':hashlib.sha256(script.read_bytes()).hexdigest(),
                     'Utility':hashlib.sha256(micro.read_bytes()).hexdigest()}}
     (root/'connection-info.json').write_text(json.dumps(info,ensure_ascii=True,indent=2),encoding='ascii')
+    if automatic:
+        info['automatic']=True
+        info['console_command']='RMCConsole = dofile('+lua_string(str(script))+'); RMCConsole.run(180)'
+        (root/'connection-info.json').write_text(json.dumps(info,ensure_ascii=True,indent=2),encoding='ascii')
     return info
 
 
@@ -50,7 +55,8 @@ def load_connection(info_path: Path) -> dict:
     if Path(info['mailbox']) != root/'mailbox' or Path(info['console_script']) != root/'ConsoleReadOnly.lua':
         raise ValueError('Connection paths escape the dedicated root')
     menu=safe_path(Path(info['utility_menu_script']))
-    if (menu.name != f'ResolveMCP_Path_{identifier[:8]}.lua' or
+    label='Auto' if info.get('automatic') is True else 'Path'
+    if (menu.name != f'ResolveMCP_{label}_{identifier[:8]}.lua' or
         tuple(part.lower() for part in menu.parent.parts[-4:]) != ('support','fusion','scripts','utility')):
         raise ValueError('Unexpected Utility path-check filename')
     return info
@@ -96,6 +102,11 @@ def inspect_connection(info_path: Path) -> dict:
     except FileNotFoundError:result['utility']['log_scan']='LOG_DIRECTORY_MISSING'
     result['utility']['interpretation']='No marker is not proof of non-execution. The two-line script writes no result file; its second line intentionally raises a unique host error. Do not rerun v2/v3 or the micro check to fill missing logs.'
     mailbox=Path(info['mailbox'])
+    if info.get('automatic') is True:
+        result['mode']='bounded-read-only'
+        result['utility']['interpretation']='Fixed private payload bootstrap; service state is diagnostic. Matching authenticated responses are the communication evidence.'
+        try:result['service']=json.loads(read_data(safe_path(mailbox/'service.json')).decode('ascii'))
+        except FileNotFoundError:result['service']={'state':'NOT_STARTED'}
     try:
         raw=read_data(safe_path(mailbox/'session.key'),65).decode('ascii')
         if not re.fullmatch('[0-9a-f]{64}',raw):raise ValueError('Invalid prepared session key')
