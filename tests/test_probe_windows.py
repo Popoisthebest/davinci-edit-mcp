@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from lupa.luajit21 import LuaRuntime
 from resolve_mcp.bundle import bundle, prepare_probe
+from resolve_mcp.inspection import inspect_probe
 from resolve_mcp.protocol import request,response
 from resolve_mcp.transport import Mailbox,atomic_write,read_data
 from tests.support import FAKE_RESOLVE,restricted_loader
@@ -76,3 +77,55 @@ class ProbeWindowsTests(unittest.TestCase):
             self.assertTrue(Path(info['utility_menu_script']).is_file())
             self.assertNotIn(Path(info['utility_menu_script']),originals)
             self.assertTrue(Path(info['console_script']).is_file())
+
+    def test_missing_bit_still_leaves_a_failure_report_and_receipt(self):
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{'LOCALAPPDATA':temporary}):
+            info=prepare_probe(False);root=Path(info['probe_root'])
+            self.lua.globals().bit=None
+            self.lua.execute('print=function() end')
+            report=self.lua.execute(bundle(root,'Utility'))
+            self.assertEqual(report.result,'FAIL')
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            self.assertEqual((row['status'],row['bit_type'],row['report_result']),('FINISHED','nil','FAIL'))
+            self.assertTrue(any(c['name']=='GLOBALS' and c['status']=='FAIL' for c in row['checks']))
+            self.assertFalse((root/'approval.txt').exists())
+
+    def test_missing_ffi_keeps_prepared_receipt_and_emits_entry_diagnostic(self):
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{'LOCALAPPDATA':temporary}):
+            info=prepare_probe(False);root=Path(info['probe_root'])
+            self.lua.globals().ffi=None
+            self.lua.execute('messages={};print=function(line) messages[#messages+1]=line end')
+            report=self.lua.execute(bundle(root,'Utility'))
+            self.assertEqual(report.result,'FAIL')
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            self.assertEqual(row['status'],'PREPARED')
+            self.assertIn('NO_FILE_WRITER','\n'.join(self.lua.globals().messages.values()))
+
+    def test_failed_result_write_is_recorded_in_launch_receipt(self):
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{'LOCALAPPDATA':temporary}):
+            info=prepare_probe(False);root=Path(info['probe_root'])
+            self.lua.globals().native_fixture=self.module('native')
+            self.lua.execute('''
+                print=function() end
+                local write=native_fixture.write
+                native_fixture.write=function(path,data)
+                    if path:sub(-11)=='result.json' then error('simulated result write failure') end
+                    return write(path,data)
+                end
+            ''')
+            report=self.module('probe').run(str(root),'Utility')
+            self.assertEqual(report.result,'FAIL')
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            self.assertEqual(row['report_result'],'MISSING')
+            self.assertIn('simulated result write failure',row['result_write_error'])
+
+    def test_mixed_project_response_is_normalized_in_saved_report(self):
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{'LOCALAPPDATA':temporary}):
+            info=prepare_probe(False);root=Path(info['probe_root'])
+            self.lua.execute("resolve:GetProjectManager().GetProjectListInCurrentFolder=function() return {'B',2,'A',count=2} end")
+            report=self.lua.execute(bundle(root,'Utility'))
+            self.assertEqual(report.result,'PASS')
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            query=next(c for c in row['checks'] if c['name']=='QUERY_projects')
+            self.assertEqual(query['status'],'PASS')
+            self.assertEqual(query['normalization']['ignored_entries'],2)

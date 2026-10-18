@@ -43,10 +43,23 @@ function M.new(resolve, codec)
     operations.projects = function()
         local names = invoke(invoke(resolve,'GetProjectManager'),'GetProjectListInCurrentFolder')
         assert(type(names) == 'table', 'Invalid project list')
-        local output = codec.array()
-        for _,name in pairs(names) do output[#output+1] = name end
+        local output, ignored_types, total, ignored = codec.array(), {}, 0, 0
+        for _,name in pairs(names) do
+            total = total + 1
+            assert(total <= 1000,'Project list input limit exceeded')
+            -- Some hosts include numeric metadata among the project names.
+            -- Never turn a count/ID/object into a name by calling tostring.
+            if type(name) == 'string' then
+                output[#output+1] = name
+            else
+                local kind = type(name)
+                ignored_types[kind] = (ignored_types[kind] or 0) + 1
+                ignored = ignored + 1
+            end
+        end
         table.sort(output)
-        return {projects=output}
+        return {projects=output,normalization={input_entries=total,accepted_names=#output,
+            ignored_entries=ignored,ignored_value_types=ignored_types,may_be_incomplete=ignored > 0}}
     end
     operations.timelines = function()
         local p, output = project(), codec.array()

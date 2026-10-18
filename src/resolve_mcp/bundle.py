@@ -1,5 +1,6 @@
 """Build a fixed Lua module registry without runtime filesystem/code loading."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -42,16 +43,20 @@ def prepare_probe(install_utility: bool = False) -> dict:
     root = safe_path(Path(os.environ['LOCALAPPDATA']) / f'ResolveMCPProbe_{identifier}')
     root.mkdir(mode=0o700)
     protect_directory(root)
-    result = {'probe_root':str(root)}
+    result = {'probe_format':2,'probe_id':identifier,'probe_root':str(root),'script_sha256':{}}
     for context in ('Console','Utility'):
         path = root / f'{context}Probe.lua'
         with path.open('x',encoding='utf-8',newline='\n') as stream:
             stream.write(bundle(root,context))
         result[context.lower() + '_script'] = str(path)
+        result['script_sha256'][context] = hashlib.sha256(path.read_bytes()).hexdigest()
+        receipt=root/f'{context}-launch.json'
+        receipt.write_text(json.dumps({'probe_format':2,'probe_id':identifier,'context':context,
+            'status':'PREPARED','last_stage':'NOT_ENTERED'}),encoding='utf-8')
     if install_utility:
         if not os.environ.get('APPDATA'):raise RuntimeError('APPDATA is required for the Utility probe')
         target = safe_path(Path(os.environ['APPDATA']) / 'Blackmagic Design' / 'DaVinci Resolve' /
-            'Support' / 'Fusion' / 'Scripts' / 'Utility' / f'ResolveMCP_ReadOnlyProbe_{identifier[:8]}.lua')
+            'Support' / 'Fusion' / 'Scripts' / 'Utility' / f'ResolveMCP_ReadOnlyProbe_v2_{identifier[:8]}.lua')
         target.parent.mkdir(parents=True,exist_ok=True)
         # A unique entry; never overwrite the active or legacy bridge.
         with target.open('x',encoding='utf-8',newline='\n') as stream:

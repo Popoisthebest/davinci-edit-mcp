@@ -2,7 +2,6 @@
 -- Only fixed mailbox paths are used by v0.3; no command execution is exposed.
 local module = ...
 local ffi = module('runtime').ffi()
-local bit = module('runtime').bit()
 assert(ffi.os == 'Windows', 'Windows LuaJIT is required by the live bridge')
 ffi.cdef[[
 unsigned long GetLastError(void);
@@ -29,6 +28,10 @@ local K = ffi.load('kernel32')
 local A = ffi.load('advapi32')
 local M = {}
 local invalid = ffi.cast('void*',-1)
+-- File diagnostics must work even when the host omits the bit library. These
+-- Win32 flags are single bits in an unsigned DWORD; arithmetic preserves the
+-- same reparse/directory checks without weakening the mandatory HMAC bit checks.
+local function has_flag(value,mask) return math.floor(tonumber(value)/mask) % 2 == 1 end
 local function wide(text)
     local count = K.MultiByteToWideChar(65001,8,text,#text,nil,0)
     assert(count > 0, 'Invalid UTF-8 path')
@@ -71,7 +74,7 @@ local function check_path(path)
         current = current .. segment
         local attributes = K.GetFileAttributesW(wide(current))
         if attributes ~= 4294967295 then
-            assert(bit.band(attributes,1024) == 0, 'Reparse points are forbidden')
+            assert(not has_flag(attributes,1024), 'Reparse points are forbidden')
         end
         current = current .. '\\'
     end
@@ -80,7 +83,7 @@ function M.create_probe_directory(parent,context)
     assert(context == 'Console' or context == 'Utility' or context == 'CI','Invalid probe context')
     check_path(parent)
     local attributes = K.GetFileAttributesW(wide(parent))
-    assert(attributes ~= 4294967295 and bit.band(attributes,16) ~= 0,'Prepared probe directory is required')
+    assert(attributes ~= 4294967295 and has_flag(attributes,16),'Prepared probe directory is required')
     local path = parent .. '\\' .. context .. '-' .. M.random_hex()
     check_path(path)
     assert(K.CreateDirectoryW(wide(path),nil) ~= 0,'Cannot create new probe directory')
