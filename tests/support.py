@@ -6,7 +6,7 @@ import time
 
 from lupa.luajit21 import LuaRuntime
 
-from resolve_mcp.transport import atomic_write
+from resolve_mcp.transport import atomic_write, read_data
 
 BRIDGE = Path(__file__).resolve().parents[1] / 'src/resolve_mcp/bridge'
 
@@ -73,7 +73,7 @@ class FileBridge:
                 previous = None
                 while not self.stop.is_set():
                     try:
-                        packet = (self.mailbox.root / 'request.txt').read_bytes()
+                        packet = read_data(self.mailbox.root / 'request.txt')
                     except FileNotFoundError:
                         packet = None
                     if packet and packet != previous:

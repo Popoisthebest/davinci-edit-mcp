@@ -11,6 +11,7 @@ import threading
 import time
 
 from .protocol import BridgeError, MAX_PACKET, request, response
+from .permissions import protect_directory
 
 READ_OPS = frozenset({"ping", "current_project", "current_timeline", "projects",
                       "timelines", "tracks", "media_pool", "render_settings", "timeline_items"})
@@ -50,12 +51,42 @@ def atomic_write(path: Path, data: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def read_data(path: Path, limit: int = MAX_PACKET + 1) -> bytes:
+    """Read with FILE_SHARE_DELETE so Windows writers can replace a packet.
+
+    A reader keeps its old complete file; the next poll sees the new file.
+    No command or Resolve API is retried.
+    """
+    safe_path(path)
+    if os.name != 'nt':
+        with path.open('rb') as stream:
+            return stream.read(limit)
+    import ctypes
+    from ctypes import wintypes as w
+    import msvcrt
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [w.LPCWSTR,w.DWORD,w.DWORD,w.LPVOID,w.DWORD,w.DWORD,w.HANDLE]
+    kernel.CreateFileW.restype = w.HANDLE
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.CreateFileW(str(path),0x80000000,7,None,3,0x200000,None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(handle,os.O_RDONLY | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(descriptor,'rb') as stream:
+        return stream.read(limit)
+
+
 class Mailbox:
     def __init__(self, root: Path | None = None, timeout: float = 10.0):
         if not 0 < timeout <= 29:
             raise ValueError("Timeout must be between 0 and 29 seconds")
         self.root = safe_path(root if root is not None else default_root())
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        protect_directory(self.root)
         if os.name != "nt" and self.root.stat().st_mode & 0o077:
             raise BridgeError("UNSAFE_PERMISSIONS", "Mailbox must have owner-only permissions")
         self.timeout = timeout
@@ -72,7 +103,7 @@ class Mailbox:
         if os.name != "nt" and path.stat().st_mode & 0o077:
             raise BridgeError("UNSAFE_PERMISSIONS", "Session key must be owner-only")
         try:
-            raw = path.read_text(encoding="ascii")
+            raw = read_data(path,65).decode('ascii')
             if len(raw) != 64 or any(c not in "0123456789abcdef" for c in raw):
                 raise ValueError("Invalid session key")
             return bytes.fromhex(raw)
@@ -131,8 +162,7 @@ class Mailbox:
         while time.monotonic() < until:
             path = safe_path(self.root / "response.txt")
             try:
-                with path.open("rb") as stream:
-                    encoded = stream.read(MAX_PACKET + 1)
+                encoded = read_data(path)
             except FileNotFoundError:
                 time.sleep(0.01)
                 continue

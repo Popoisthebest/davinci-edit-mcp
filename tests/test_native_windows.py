@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from lupa.luajit21 import LuaRuntime
+from resolve_mcp.transport import atomic_write, read_data
 from tests.support import BRIDGE
 
 
@@ -31,3 +32,22 @@ class NativeWindowsTests(unittest.TestCase):
         restarted=self.native.acquire(name)
         self.assertIsNotNone(restarted)
         restarted()
+
+    def test_python_reader_allows_atomic_replace_while_handle_is_open(self):
+        from unittest.mock import patch
+        import os
+        with TemporaryDirectory() as temporary:
+            path=Path(temporary)/'교체.txt'
+            atomic_write(path,b'old')
+            original_fdopen=os.fdopen
+            def open_mode(descriptor,mode,*args,**kwargs):
+                if mode == 'rb':
+                    # read_data owns the open Windows handle at this point.
+                    try:atomic_write(path,b'new')
+                    except BaseException:
+                        os.close(descriptor)
+                        raise
+                return original_fdopen(descriptor,mode,*args,**kwargs)
+            with patch('resolve_mcp.transport.os.fdopen',side_effect=open_mode):
+                self.assertEqual(read_data(path),b'old')
+            self.assertEqual(read_data(path),b'new')
