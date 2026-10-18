@@ -61,3 +61,25 @@ class InspectionTests(unittest.TestCase):
     def test_old_manifest_requires_regeneration(self):
         self.info.write_text('{}')
         with self.assertRaisesRegex(ValueError,'new v2 probe'):inspect_probe(self.info)
+
+    def test_v3_inspects_only_utility_and_preserves_environment_diagnostics(self):
+        data=json.loads(self.info.read_text())
+        data.update(probe_format=3,probe_kind='utility-entry')
+        data['script_sha256'].pop('Console')
+        self.info.write_text(json.dumps(data))
+        self.receipt(probe_format=3,status='FINISHED',last_stage='FFI_GLOBALS',result='FAIL',
+            environment={'lua_version':'Lua 5.1','symbols':{'ffi':{'resolved':'nil','raw_global':'nil'}}},
+            entry_error='Missing global library: ffi')
+        result=inspect_probe(self.info)
+        self.assertEqual(set(result['contexts']),{'Utility'})
+        self.assertEqual(result['contexts']['Utility']['last_stage'],'FFI_GLOBALS')
+        self.assertEqual(result['contexts']['Utility']['environment']['symbols']['ffi']['resolved'],'nil')
+
+    def test_v3_cannot_use_an_old_menu_filename_or_unknown_kind(self):
+        data=json.loads(self.info.read_text())
+        data.update(probe_format=3,probe_kind='utility-entry',utility_menu_script=str(
+            self.root/f'ResolveMCP_ReadOnlyProbe_v2_{self.identifier[:8]}.lua'))
+        self.info.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'filename'):inspect_probe(self.info)
+        data['probe_kind']='unknown';self.info.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'old or invalid'):inspect_probe(self.info)

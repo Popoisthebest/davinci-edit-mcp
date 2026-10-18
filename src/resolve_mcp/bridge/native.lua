@@ -117,20 +117,31 @@ function M.write(path,data)
     assert(#data <= 1048576, 'Response size limit exceeded')
     local temporary = path .. '.' .. M.random_hex() .. '.tmp'
     local handle = K.CreateFileW(wide(temporary),1073741824,0,nil,1,128,nil)
-    assert(handle ~= invalid, 'Mailbox temporary file creation failed')
+    assert(handle ~= invalid, 'Mailbox temporary file creation failed; Win32=' .. tostring(K.GetLastError()))
     local count = ffi.new('unsigned long[1]')
     local ok = K.WriteFile(handle,data,#data,count,nil)
+    local write_error = ok == 0 and K.GetLastError() or nil
     local flushed = K.FlushFileBuffers(handle)
+    local flush_error = flushed == 0 and K.GetLastError() or nil
     K.CloseHandle(handle)
     local moved = false
+    local move_error
     if ok ~= 0 and count[0] == #data and flushed ~= 0 then
         moved = K.ReplaceFileW(wide(path),wide(temporary),nil,0,nil,nil) ~= 0
         if not moved then
             local code = K.GetLastError()
-            if code == 2 or code == 3 then moved = K.MoveFileExW(wide(temporary),wide(path),9) ~= 0 end
+            move_error = code
+            if code == 2 or code == 3 then
+                moved = K.MoveFileExW(wide(temporary),wide(path),9) ~= 0
+                if not moved then move_error = K.GetLastError() end
+            end
         end
     end
-    if not moved then K.DeleteFileW(wide(temporary)); error('Atomic response write failed') end
+    if not moved then
+        K.DeleteFileW(wide(temporary))
+        error('Atomic response write failed; WriteFile=' .. tostring(write_error or 'OK') ..
+            '; FlushFileBuffers=' .. tostring(flush_error or 'OK') .. '; Replace/Move=' .. tostring(move_error or 'NOT_RUN'))
+    end
 end
 local function canonical(path,directory)
     check_path(path)

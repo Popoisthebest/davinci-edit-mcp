@@ -1,5 +1,7 @@
 # Windows 실기기 조회 전용 진단
 
+최신 실기기 결과: v2 Console 전체 PASS, 실제 Utility 메뉴 `ResolveMCP_ReadOnlyProbe_v2_d9114720`은 반복 실행해도 PREPARED / NOT_ENTERED였습니다. 같은 v2 검사를 반복하도록 요청하지 않습니다. 원인 분석과 별도의 소형 진입 진단은 [Utility 진입 진단 v3](utility-startup-diagnosis.md)에 있습니다. 아래 v2 절차는 일반 조회 검사용 기록이며 현재 Utility 문제의 다음 단계가 아닙니다.
+
 먼저 이 진단만 실행합니다. 클립 편집·프로젝트 생성/전환/저장·미디어 import·승인 생성·Fusion prefs 변경·상주 브리지 시작을 하지 않습니다. 실제 편집 검증은 Console과 Utility 결과를 확인한 뒤 사용자의 후속 승인에 따릅니다. v0.4 코드의 존재나 CI 통과는 이 순서를 생략하는 근거가 아닙니다.
 
 Resolve에 대해서는 읽기 전용입니다. Win32 파일 읽기/쓰기 검사는 새 `%LOCALAPPDATA%\ResolveMCPProbe_<UUID>` 아래에만 진단 파일을 만듭니다. 기존 프로젝트·미디어·v0.2/현재 브리지·mailbox·세션 키·승인 파일은 읽거나 변경하지 않습니다. 기존 설치를 업그레이드하는 `Install.ps1`은 이 단계에 필요하지 않습니다.
@@ -71,7 +73,7 @@ FFI 자체가 없거나 Win32 DLL/파일 접근이 차단되면 결과 파일 �
 
 ## 호환성·구조 기록
 
-사용자 제공 증거: Resolve 21.1.1.10 Free의 Console에서 require/package는 nil이고 전역 ffi/bit가 존재하며 ffi.typeof('int')가 성공했습니다. 이는 Win32 DLL 함수와 파일 I/O 성공, 모든 bit 함수의 존재, Utility 환경을 입증하지 않습니다. 후속 사용자 검사에서는 Console용과 Utility용 페이로드를 모두 Console에서 직접 실행했을 때 QUERY_projects 외 모든 검사가 PASS였으며, 문자열/숫자 혼합 정렬 오류가 보고됐습니다. 실제 Utility 메뉴 실행은 결과 파일이 없어 검증되지 않았습니다. 이번 v2 수정본의 사용자 PC 실행은 재검증이 필요합니다.
+사용자 제공 증거: Resolve 21.1.1.10 Free의 Console에서 require/package는 nil이고 전역 ffi/bit가 존재하며 ffi.typeof('int')가 성공했습니다. 이는 Win32 DLL 함수와 파일 I/O 성공, 모든 bit 함수의 존재, Utility 환경을 입증하지 않습니다. 후속 사용자 검사에서는 Console용과 Utility용 페이로드를 모두 Console에서 직접 실행했을 때 QUERY_projects 외 모든 검사가 PASS였으며, 문자열/숫자 혼합 정렬 오류가 보고됐습니다. 이후 사용자 v2 검사에서 Console 전체 PASS가 확인됐습니다. 실제 Utility 메뉴의 ResolveMCP_ReadOnlyProbe_v2_d9114720은 반복 실행에도 PREPARED / NOT_ENTERED였으며 원인 분석은 utility-startup-diagnosis.md에 기록했습니다. 같은 v2 검사를 다시 요구하지 않습니다.
 
 기존 PR #1의 require 호출은 native.lua의 ffi 1곳·경로 검사 bit 1곳, crypto.lua의 bit 1곳으로 총 3곳입니다. PR #2에는 native.lua의 canonical 경로 검사 bit 1곳이 더 있어 총 4곳입니다. 다른 require 호출은 없었습니다. 종전 시작 코드의 debug.getinfo, 파일별 dofile과 설치 launcher의 dofile 의존성도 함께 제거했습니다.
 

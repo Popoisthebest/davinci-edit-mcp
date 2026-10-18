@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from lupa.luajit21 import LuaRuntime
-from resolve_mcp.bundle import bundle, prepare_probe
+from resolve_mcp.bundle import bundle, prepare_probe, utility_diagnostic
 from resolve_mcp.inspection import inspect_probe
 from resolve_mcp.protocol import request,response
 from resolve_mcp.transport import Mailbox,atomic_write,read_data
@@ -129,3 +129,49 @@ class ProbeWindowsTests(unittest.TestCase):
             query=next(c for c in row['checks'] if c['name']=='QUERY_projects')
             self.assertEqual(query['status'],'PASS')
             self.assertEqual(query['normalization']['ignored_entries'],2)
+
+    def test_independent_entry_uses_scoped_ffi_without_full_queries_or_bit(self):
+        with TemporaryDirectory(prefix='유틸리티_') as temporary,patch.dict(os.environ,{
+            'LOCALAPPDATA':temporary,'APPDATA':str(Path(temporary)/'roaming')}):
+            info=prepare_probe(True,utility_entry=True);root=Path(info['probe_root'])
+            self.assertEqual(info['probe_format'],3)
+            self.assertNotIn('console_script',info)
+            self.lua.execute('''
+                dialogs={}
+                env_fixture=setmetatable({ffi=ffi,fusion={AskUser=function(_,title,fields)
+                    dialogs[#dialogs+1]=fields[1].Default end}}, {__index=_G})
+                ffi=nil;bit=nil;print=nil
+                resolve.GetProjectManager=function() error('Project access is forbidden in entry diagnosis') end
+            ''')
+            chunk=self.lua.compile(Path(info['utility_menu_script']).read_text(encoding='ascii'))
+            self.lua.eval('setfenv')(chunk,self.lua.globals().env_fixture)
+            report=chunk()
+            self.assertEqual(report.result,'PASS')
+            self.assertEqual(len(self.lua.globals().dialogs),2)
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            self.assertEqual((row['status'],row['result']),('FINISHED','PASS'))
+            self.assertEqual(row['environment']['symbols']['ffi'],{'resolved':'table','raw_global':'nil'})
+            self.assertEqual(row['menu_script_integrity'],'MATCH')
+            self.assertFalse((root/'session.key').exists())
+            self.assertFalse((root/'approval.txt').exists())
+
+    def test_independent_entry_records_a_file_writer_failure_in_ui(self):
+        import ctypes
+        from ctypes import wintypes as w
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{'LOCALAPPDATA':temporary}):
+            info=prepare_probe(False,utility_entry=True);root=Path(info['probe_root'])
+            self.lua.execute('dialogs={};fusion={AskUser=function(_,title,fields) dialogs[#dialogs+1]=fields[1].Default end}')
+            kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+            kernel.CreateFileW.argtypes=[w.LPCWSTR,w.DWORD,w.DWORD,w.LPVOID,w.DWORD,w.DWORD,w.HANDLE]
+            kernel.CreateFileW.restype=w.HANDLE
+            kernel.CloseHandle.argtypes=[w.HANDLE]
+            handle=kernel.CreateFileW(str(root/'Utility-launch.json'),0x80000000,0,None,3,128,None)
+            self.assertNotEqual(handle,ctypes.c_void_p(-1).value)
+            try:report=self.lua.execute(utility_diagnostic(root))
+            finally:kernel.CloseHandle(handle)
+            self.assertEqual((report.result,report.last_stage),('FAIL','RECEIPT_WRITE'))
+            self.assertRegex(self.lua.globals().dialogs[2],r'Replace/Move=\d+')
+            self.assertIn('RECEIPT_WRITE',self.lua.globals().dialogs[2])
+            row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
+            self.assertEqual(row['status'],'PREPARED')
+            self.assertIn('dialogs',row['interpretation'])
