@@ -6,13 +6,13 @@ function M.run(parent,context)
     local report = {probe_format=2,probe_id=parent:match('ResolveMCPProbe_([0-9a-f]+)$') or 'unprepared',
         context=context,ok=true,complete=true,checks={},result='RUNNING',
         context_origin='prepared entrypoint label; UI execution must be confirmed by user',
-        require_type=type(rawget(_G,'require')),package_type=type(rawget(_G,'package')),
-        ffi_type=type(rawget(_G,'ffi')),bit_type=type(rawget(_G,'bit')),
-        debug_type=type(rawget(_G,'debug')),io_type=type(rawget(_G,'io')),
+        require_type=type(require),package_type=type(package),
+        ffi_type=type(ffi),bit_type=type(bit),
+        debug_type=type(debug),io_type=type(io),
         project_scope='read-only',editing_test='NOT_RUN'}
     local native,crypto,codec,operations,directory
     local function emit(text)
-        local output = rawget(_G,'print')
+        local output = print
         if type(output) == 'function' then pcall(output,'[ResolveMCP ReadOnlyProbe ' .. context .. '] ' .. text) end
     end
     local function result(final)

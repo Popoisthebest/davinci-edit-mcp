@@ -16,14 +16,22 @@ def lua_string(value: str) -> str:
     return '"' + ''.join(f'\\{byte:03d}' for byte in value.encode('utf-8')) + '"'
 
 
-def loader_source() -> str:
+def loader_source(names: tuple[str, ...] | None = None) -> str:
     source = '-- Generated from trusted repository sources. No runtime code loading.\n'
     source += 'local factory_loader = (function()\n' + (BRIDGE/'loader.lua').read_text(encoding='utf-8') + '\nend)()\n'
     source += 'local module = factory_loader({\n'
-    for name, filename in MODULES.items():
+    for name in (names if names is not None else MODULES):
+        filename = MODULES[name]
         source += f'[{lua_string(name)}] = function(...)\n'
         source += (BRIDGE/filename).read_text(encoding='utf-8') + '\nend,\n'
     return source + '})\n'
+
+
+def utility_diagnostic(root: Path) -> str:
+    """Small independent entry diagnostic; no queries or production dispatcher."""
+    source = (BRIDGE/'utility_entry.lua').read_text(encoding='ascii')
+    source = source.replace('-- FIXED_REGISTRY',loader_source(('runtime','codec','native'))+'return module')
+    return source + f'\nreturn diagnose({lua_string(str(root))})\n'
 
 
 def bundle(probe_root: Path | None = None, context: str = 'Console') -> str:
@@ -34,7 +42,7 @@ def bundle(probe_root: Path | None = None, context: str = 'Console') -> str:
     return loader_source() + tail
 
 
-def prepare_probe(install_utility: bool = False) -> dict:
+def prepare_probe(install_utility: bool = False, *, utility_entry: bool = False) -> dict:
     from .permissions import protect_directory
     from .transport import safe_path
     if os.name != 'nt' or not os.environ.get('LOCALAPPDATA'):
@@ -43,24 +51,28 @@ def prepare_probe(install_utility: bool = False) -> dict:
     root = safe_path(Path(os.environ['LOCALAPPDATA']) / f'ResolveMCPProbe_{identifier}')
     root.mkdir(mode=0o700)
     protect_directory(root)
-    result = {'probe_format':2,'probe_id':identifier,'probe_root':str(root),'script_sha256':{}}
-    for context in ('Console','Utility'):
+    version = 3 if utility_entry else 2
+    result = {'probe_format':version,'probe_id':identifier,'probe_root':str(root),'script_sha256':{}}
+    if utility_entry:result['probe_kind']='utility-entry'
+    for context in (('Utility',) if utility_entry else ('Console','Utility')):
         path = root / f'{context}Probe.lua'
         with path.open('x',encoding='utf-8',newline='\n') as stream:
-            stream.write(bundle(root,context))
+            stream.write(utility_diagnostic(root) if utility_entry else bundle(root,context))
         result[context.lower() + '_script'] = str(path)
         result['script_sha256'][context] = hashlib.sha256(path.read_bytes()).hexdigest()
         receipt=root/f'{context}-launch.json'
-        receipt.write_text(json.dumps({'probe_format':2,'probe_id':identifier,'context':context,
+        receipt.write_text(json.dumps({'probe_format':version,'probe_id':identifier,'context':context,
             'status':'PREPARED','last_stage':'NOT_ENTERED'}),encoding='utf-8')
     if install_utility:
         if not os.environ.get('APPDATA'):raise RuntimeError('APPDATA is required for the Utility probe')
         target = safe_path(Path(os.environ['APPDATA']) / 'Blackmagic Design' / 'DaVinci Resolve' /
-            'Support' / 'Fusion' / 'Scripts' / 'Utility' / f'ResolveMCP_ReadOnlyProbe_v2_{identifier[:8]}.lua')
+            'Support' / 'Fusion' / 'Scripts' / 'Utility' / (
+                f'ResolveMCP_UtilityEntry_v3_{identifier[:8]}.lua' if utility_entry else
+                f'ResolveMCP_ReadOnlyProbe_v2_{identifier[:8]}.lua'))
         target.parent.mkdir(parents=True,exist_ok=True)
         # A unique entry; never overwrite the active or legacy bridge.
         with target.open('x',encoding='utf-8',newline='\n') as stream:
-            stream.write(bundle(root,'Utility'))
+            stream.write(utility_diagnostic(root) if utility_entry else bundle(root,'Utility'))
         result['utility_menu_script'] = str(target)
     (root/'probe-info.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     return result
