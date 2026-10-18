@@ -1,6 +1,7 @@
 -- Pure protocol/dispatch core; adapters own OS I/O and locking.
 local M = {}
-function M.new(crypto, codec, operations, key, bridge_id)
+function M.new(crypto, codec, operations, key, bridge_id, writable)
+    writable = writable or {}
     assert(#key == 32 and #bridge_id == 32)
     local self = {stopped=false,cache={}}
     local function signed(fields)
@@ -45,7 +46,7 @@ function M.new(crypto, codec, operations, key, bridge_id)
             self.stopped = true
             result = reply(id,'OK',{stopped=true})
         elseif not operations[op] then result = reply(id,'ERROR',{code='OP_NOT_ALLOWED',message='Operation is not enabled'})
-        elseif next(params) ~= nil then result = reply(id,'ERROR',{code='INVALID_REQUEST',message='Read operations accept no parameters'})
+        elseif next(params) ~= nil and not writable[op] then result = reply(id,'ERROR',{code='INVALID_REQUEST',message='Read operations accept no parameters'})
         else
             local ok,data = pcall(operations[op],params)
             if ok then
@@ -53,8 +54,10 @@ function M.new(crypto, codec, operations, key, bridge_id)
                 if encoded then result = packet_result
                 else result = reply(id,'ERROR',{code='RESULT_LIMIT',message='Response is invalid or too large'}) end
             else
+                local denied = tostring(data):match('WRITE_DENIED:([^\r\n]+)')
                 local unsupported = tostring(data):find('UNSUPPORTED_API:',1,true)
-                result = reply(id,'ERROR',{code=unsupported and 'UNSUPPORTED_API' or 'API_ERROR',message=unsupported and 'Required Resolve API is unavailable' or 'Resolve API failed; no automatic retry'})
+                local code = denied and 'WRITE_DENIED' or (unsupported and 'UNSUPPORTED_API' or 'API_ERROR')
+                result = reply(id,'ERROR',{code=code,message=denied or (unsupported and 'Required Resolve API is unavailable' or 'Resolve API failed; inspect before retrying')})
             end
         end
         self.cache[id] = {body=body,response=result,deadline=deadline}

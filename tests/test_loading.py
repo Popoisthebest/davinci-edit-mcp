@@ -14,7 +14,7 @@ class LoadingTests(unittest.TestCase):
 
     def test_read_graph_needs_no_require_package_debug_or_file_loader(self):
         self.lua.execute('loadstring=nil; load=nil')
-        for name in ['runtime','crypto','codec','reads','core','bridge','probe']:
+        for name in ['runtime','crypto','codec','reads','core','bridge','probe','edits']:
             with self.subTest(module=name):self.assertIsNotNone(self.module(name))
         for name in ['require','package','io','debug','loadfile','dofile','loadstring','load']:
             self.assertIsNone(self.lua.globals()[name])

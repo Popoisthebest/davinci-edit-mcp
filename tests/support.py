@@ -71,8 +71,9 @@ class LuaBridge:
 
 
 class FileBridge:
-    def __init__(self, mailbox, instance='b' * 32, delay=0):
+    def __init__(self, mailbox, instance='b' * 32, delay=0, factory=None):
         self.mailbox, self.instance, self.delay = mailbox, instance, delay
+        self.factory = factory
         self.stop = threading.Event()
         self.ready = threading.Event()
         self.errors = []
@@ -81,7 +82,7 @@ class FileBridge:
     def __enter__(self):
         def run():
             try:
-                bridge = LuaBridge(self.mailbox.key, self.instance)
+                bridge = self.factory(self.mailbox,self.instance) if self.factory else LuaBridge(self.mailbox.key, self.instance)
                 self.ready.set()
                 previous = None
                 while not self.stop.is_set():

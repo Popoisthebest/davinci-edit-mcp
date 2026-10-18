@@ -15,7 +15,8 @@ function M.new(root,enable_edits)
     local operations,writable
     if enable_edits == true then
         operations,writable=module('bridge').operations(runtime.resolve(),codec,key,{
-            root=root,bridge_id=bridge_id,read=native.read,canonical_file=native.canonical_file,
+            root=root,bridge_id=bridge_id,read=native.read,write=native.write,
+            monotonic_seconds=native.monotonic_seconds,wait=bmd and bmd.wait,canonical_file=native.canonical_file,
             canonical_directory=native.canonical_directory,random_hex=native.random_hex,now=os.time})
     else operations=module('reads').new(runtime.resolve(),codec) end
     local core=module('core').new(crypto,codec,operations,key,bridge_id,writable)

@@ -9,7 +9,7 @@ import uuid
 BRIDGE = Path(__file__).parent / 'bridge'
 MODULES = {'runtime':'runtime.lua','native':'native.lua','crypto':'crypto.lua',
            'codec':'codec.lua','reads':'reads.lua','core':'core.lua',
-           'bridge':'ResolveMCP3.lua','probe':'probe.lua','console':'console.lua'}
+           'bridge':'ResolveMCP3.lua','probe':'probe.lua','edits':'edits.lua','console':'console.lua'}
 
 
 def lua_string(value: str) -> str:

@@ -4,7 +4,7 @@ import secrets
 import unittest
 
 from resolve_mcp.protocol import BridgeError, encode_params, pack, request, response
-from tests.support import LuaBridge
+from tests.support import LuaBridge, BRIDGE
 
 
 class ProtocolTests(unittest.TestCase):
@@ -25,6 +25,11 @@ class ProtocolTests(unittest.TestCase):
                 self.assertEqual(self.bridge.crypto.hmac(b'key', data), hmac.new(b'key', data, 'sha256').hexdigest())
         self.assertEqual(self.bridge.crypto.hmac(b'\x0b'*20, b'Hi There'),
                          'b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7')
+
+    def test_all_lua_modules_compile(self):
+        compile_only=self.bridge.lua.eval('function(text) local f,err=loadstring(text); assert(f,err); return true end')
+        for path in BRIDGE.glob('*.lua'):
+            with self.subTest(file=path.name):self.assertTrue(compile_only(path.read_text(encoding='utf-8')))
 
     def test_baseline_ping(self):
         result = self.call()

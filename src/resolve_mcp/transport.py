@@ -207,9 +207,8 @@ class Mailbox:
         raise BridgeError("TIMEOUT", "No matching bridge response; outcome is unknown, do not auto-retry writes")
 
     def call(self, op: str, **params) -> dict:
-        if op not in READ_OPS and op != "stop":
-            raise BridgeError("OP_NOT_ALLOWED", "Operation is not enabled")
         with self._locked():
+            params = self.prepare(op, params)
             if self.bridge_id is None and op != "ping":
                 self._exchange("ping", {})
             return self._exchange(op, params)
@@ -247,6 +246,11 @@ class Mailbox:
                 raise BridgeError('STARTUP_TIMEOUT', 'No authenticated service ready; no edit request was published')
             finally:
                 start.unlink(missing_ok=True)
+
+    def prepare(self, op: str, params: dict) -> dict:
+        if op not in READ_OPS and op != "stop":
+            raise BridgeError("OP_NOT_ALLOWED", "Operation is not enabled")
+        return params
 
     def rotate_session(self) -> None:
         with self._locked():
