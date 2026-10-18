@@ -3,7 +3,10 @@ local module = ...
 local M = {}
 function M.run(parent,context)
     local report = {context=context,ok=true,complete=true,checks={},
+        context_origin='prepared entrypoint label; UI execution must be confirmed by user',
         require_type=type(rawget(_G,'require')),package_type=type(rawget(_G,'package')),
+        ffi_type=type(rawget(_G,'ffi')),bit_type=type(rawget(_G,'bit')),
+        debug_type=type(rawget(_G,'debug')),io_type=type(rawget(_G,'io')),
         project_scope='read-only',editing_test='NOT_RUN'}
     local function emit(text) print('[ResolveMCP ReadOnlyProbe ' .. context .. '] ' .. text) end
     local function check(name,action)
@@ -32,6 +35,10 @@ function M.run(parent,context)
         if entry.load_modules then entry.load_modules() end
     end)
     if modules_ok then
+        check('BRIDGE_HOST_FUNCTIONS',function()
+            assert(bmd and type(bmd.wait) == 'function','bmd.wait unavailable in this context')
+            assert(os and type(os.time) == 'function','os.time unavailable in this context')
+        end)
         check('FFI_WIN32_CALL',function() assert(native.ffi_call_test()) end)
         check('HMAC_VECTOR',function()
             assert(crypto.hmac(string.rep(string.char(11),20),'Hi There') ==

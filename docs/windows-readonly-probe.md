@@ -40,6 +40,7 @@ Get-ChildItem -LiteralPath $info.probe_root -Filter result.json -Recurse |
 
 - `GLOBALS`: 전역 ffi/bit의 실제 사용 함수 전체를 점검합니다. require/package는 필요하지 않습니다.
 - `MODULE_GRAPH`: 고정 내부 registry로 모든 모듈의 정의를 로드합니다. v0.4에서도 편집 dispatcher는 구성하지 않습니다.
+- `BRIDGE_HOST_FUNCTIONS`: 실제 상주 브리지에 필요한 bmd.wait/os.time 제공 여부를 확인하되 상주 루프는 실행하지 않습니다.
 - `FFI_WIN32_CALL`: ffi.typeof/new 및 kernel32 GetCurrentProcessId의 실제 호출입니다.
 - `WIN32_FILE_IO`: 별도 새 폴더의 한글 파일을 실제 Win32 API로 생성·읽기·교체·재읽기합니다.
 - `HMAC_VECTOR`, `AUTHENTICATED_CHANNEL`: 기존 HMAC 벡터, 변조 거부, 중복 응답, 서명된 데이터 파일 왕복을 확인합니다. 실제 mailbox의 키를 사용하지 않습니다.
@@ -48,7 +49,7 @@ Get-ChildItem -LiteralPath $info.probe_root -Filter result.json -Recurse |
 - `PARTIAL`/`SKIP`: 프로젝트/타임라인이 열려 있지 않아 해당 조회가 수행되지 않았습니다. PASS로 계산하지 않습니다.
 - `FAIL`: 실패한 단계와 상세를 확인합니다. 공유키나 승인 권한을 낮추거나 임의 코드 실행 경로로 우회하지 않습니다.
 
-Console 결과와 Utility 결과는 서로 대체할 수 없습니다. 두 `result.json`의 context, resolve_version, result, checks와 오류가 발생했다면 콘솔 출력을 전달해 주세요. 그 결과를 검토하기 전에는 실기기 편집 검사나 `--enable-writes`를 실행하지 않습니다.
+`context`는 준비한 파일의 진입점 표식이며 Resolve UI를 자동 감지한 결과가 아닙니다. 해당 파일을 안내된 Console/Utility에서 실행했는지 사용자가 확인해야 합니다. Console 결과와 Utility 결과는 서로 대체할 수 없습니다. 두 `result.json`의 context, resolve_version, result, checks와 오류가 발생했다면 콘솔 출력을 전달해 주세요. 그 결과를 검토하기 전에는 실기기 편집 검사나 `--enable-writes`를 실행하지 않습니다.
 
 ## 호환성·구조 기록
 

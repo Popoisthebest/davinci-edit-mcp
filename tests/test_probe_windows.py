@@ -21,7 +21,7 @@ class ProbeWindowsTests(unittest.TestCase):
         # The probe cannot call setters: none exist on these simulated objects.
         api=self.lua.execute(FAKE_RESOLVE)
         self.lua.globals().resolve=api.resolve
-        self.lua.execute('loadstring=nil; load=nil')
+        self.lua.execute('loadstring=nil; load=nil; bmd={wait=function() end}')
 
     def test_ffi_function_call_is_separate_from_file_io(self):
         self.assertTrue(self.module('native').ffi_call_test())
