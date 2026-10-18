@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from resolve_mcp.protocol import BridgeError
-from resolve_mcp.transport import Mailbox, atomic_write
+from resolve_mcp.transport import Mailbox, atomic_write, read_data
 from tests.support import FileBridge
 
 
@@ -79,6 +79,19 @@ class TransportTests(unittest.TestCase):
     def test_parent_traversal_is_rejected(self):
         with self.assertRaisesRegex(BridgeError,'UNSAFE_PATH'):
             Mailbox(self.root/'..'/'alias')
+
+    def test_packet_disappearing_during_path_check_does_not_stop_polling(self):
+        path=self.root/'response.txt';atomic_write(path,b'complete packet')
+        original=Path.lstat
+        first=True
+        def transient_missing(target,*args,**kwargs):
+            nonlocal first
+            if target == path and first:
+                first=False
+                raise FileNotFoundError('Atomic replacement in progress')
+            return original(target,*args,**kwargs)
+        with patch.object(Path,'lstat',new=transient_missing):
+            self.assertEqual(read_data(path),b'complete packet')
 
     def test_restart_clears_cached_instance(self):
         with FileBridge(self.box,instance='a'*32): self.box.call('ping')
