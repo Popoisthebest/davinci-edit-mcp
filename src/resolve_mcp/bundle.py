@@ -53,6 +53,7 @@ def utility_launcher(payload: Path, identifier: str, seconds: int = 180) -> str:
             'assert(type(loadfile)=="function","BOOTSTRAP_LOADFILE_UNAVAILABLE")\n'
             f'local chunk,why=loadfile({lua_string(str(payload))})\n'
             'assert(chunk,"PAYLOAD_COMPILE: "..tostring(why))\n'
+            'if type(getfenv)=="function" and type(setfenv)=="function" then setfenv(chunk,getfenv(1)) end\n'
             'local session=chunk()\n'
             f'session.run({seconds},"Utility")\n'
             'end)\n'
