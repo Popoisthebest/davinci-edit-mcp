@@ -1,4 +1,4 @@
-param([switch]$SelfTest, [switch]$StopBridge, [switch]$RotateSession)
+param([switch]$SelfTest, [switch]$StopBridge, [switch]$RotateSession, [switch]$EnableWrites)
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'ResolveMCPNext'
 $active = Get-Content -Raw -LiteralPath (Join-Path $root 'active.json') | ConvertFrom-Json
@@ -7,5 +7,6 @@ if (([int]$SelfTest.IsPresent + [int]$StopBridge.IsPresent + [int]$RotateSession
 if ($SelfTest) { $arguments += '--self-test' }
 if ($StopBridge) { $arguments += '--stop' }
 if ($RotateSession) { $arguments += '--rotate-session' }
+if ($EnableWrites) { $arguments += '--enable-writes' }
 & $active.python @arguments
 if ($LASTEXITCODE -ne 0) { throw "ResolveMCP exited with status $LASTEXITCODE" }

@@ -2,9 +2,17 @@
 -- Only fixed mailbox paths are used by v0.3; no command execution is exposed.
 local ffi = require('ffi')
 assert(ffi.os == 'Windows', 'Windows LuaJIT is required by the live bridge')
-ffi.cdef[[
+if not pcall(ffi.typeof,'RM_FILE_INFO') then ffi.cdef[[
 unsigned long GetLastError(void);
 unsigned long GetFileAttributesW(const wchar_t*);
+typedef struct { unsigned long low; unsigned long high; } RM_FILETIME;
+typedef struct {
+    unsigned long attributes; RM_FILETIME created; RM_FILETIME accessed; RM_FILETIME written;
+    unsigned long volume; unsigned long size_high; unsigned long size_low;
+    unsigned long links; unsigned long index_high; unsigned long index_low;
+} RM_FILE_INFO;
+int GetFileInformationByHandle(void*,RM_FILE_INFO*);
+unsigned long GetFinalPathNameByHandleW(void*,wchar_t*,unsigned long,unsigned long);
 int MultiByteToWideChar(unsigned int,unsigned long,const char*,int,wchar_t*,int);
 int WideCharToMultiByte(unsigned int,unsigned long,const wchar_t*,int,char*,int,const char*,int*);
 unsigned long GetEnvironmentVariableW(const wchar_t*,wchar_t*,unsigned long);
@@ -20,7 +28,7 @@ void* CreateMutexW(void*,int,const wchar_t*);
 unsigned long WaitForSingleObject(void*,unsigned long);
 int ReleaseMutex(void*);
 unsigned char SystemFunction036(void*,unsigned long);
-]]
+]] end
 local K = ffi.load('kernel32')
 local A = ffi.load('advapi32')
 local M = {}
@@ -100,6 +108,24 @@ function M.write(path,data)
     end
     if not moved then K.DeleteFileW(wide(temporary)); error('Atomic response write failed') end
 end
+local function canonical(path,directory)
+    check_path(path)
+    local handle = K.CreateFileW(wide(path),0,7,nil,3,35651584,nil)
+    assert(handle ~= invalid, 'Cannot open approved media path')
+    local info,buffer = ffi.new('RM_FILE_INFO[1]'),ffi.new('wchar_t[32768]')
+    local ok = K.GetFileInformationByHandle(handle,info)
+    local size = K.GetFinalPathNameByHandleW(handle,buffer,32768,0)
+    K.CloseHandle(handle)
+    local bit = require('bit')
+    assert(ok ~= 0 and size > 0 and size < 32768 and bit.band(info[0].attributes,1024) == 0, 'Unsafe media path')
+    assert((bit.band(info[0].attributes,16) ~= 0) == directory, 'Unexpected media path type')
+    if not directory then assert(info[0].links == 1, 'Hardlinked media is forbidden') end
+    local result = utf8(buffer,size)
+    if result:sub(1,4) == string.char(92,92,63,92) then result = result:sub(5) end
+    return (result:gsub('\\$',''))
+end
+function M.canonical_file(path) return canonical(path,false) end
+function M.canonical_directory(path) return canonical(path,true) end
 function M.acquire(name)
     local handle = K.CreateMutexW(nil,1,wide('Local\\ResolveMCP-' .. name))
     assert(handle ~= nil and handle ~= ffi.NULL, 'Bridge mutex unavailable')

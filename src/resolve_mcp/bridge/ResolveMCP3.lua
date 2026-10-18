@@ -1,6 +1,6 @@
 -- Install this file beside the trusted modules with scripts/Install.ps1.
 -- Run from Workspace > Scripts > Utility > ResolveMCP3. No fusion:Execute loop.
-local function log(message) print('[ResolveMCP v0.3] ' .. message) end
+local function log(message) print('[ResolveMCP v0.4] ' .. message) end
 local ok = pcall(function()
     assert(debug and debug.getinfo and bmd and type(bmd.wait) == 'function', 'Required host functions unavailable')
     local source = debug.getinfo(1,'S').source
@@ -11,6 +11,7 @@ local ok = pcall(function()
     local crypto = dofile(directory .. 'crypto.lua')
     local codec = dofile(directory .. 'codec.lua')
     local reads = dofile(directory .. 'reads.lua')
+    local edits = dofile(directory .. 'edits.lua')
     local core = dofile(directory .. 'core.lua')
     local root = native.root()
     local release = native.acquire(crypto.sha256(root))
@@ -22,9 +23,21 @@ local ok = pcall(function()
         local resolve_object = rawget(_G,'resolve')
         if not resolve_object and type(bmd.scriptapp) == 'function' then resolve_object = bmd.scriptapp('Resolve') end
         assert(resolve_object, 'Resolve object unavailable')
-        local operations = reads.new(resolve_object,codec)
-        local bridge = core.new(crypto,codec,operations,key,native.random_hex())
-        log('Started; read-only, authenticated data channel')
+        local operations,invoke = reads.new(resolve_object,codec)
+        local writable = edits.new(resolve_object,codec,crypto,key,{
+            root=root,read=native.read,canonical_file=native.canonical_file,
+            canonical_directory=native.canonical_directory,random_hex=native.random_hex,now=os.time,
+        },invoke)
+        for name,operation in pairs(writable) do operations[name] = operation end
+        local original_ping = operations.ping
+        operations.ping = function()
+            local result = original_ping()
+            result.writes_enabled = nil -- write-tool exposure is a per-client setting
+            result.version,result.writes_require_local_approval,result.writes_default_disabled = '0.4.0',true,true
+            return result
+        end
+        local bridge = core.new(crypto,codec,operations,key,native.random_hex(),writable)
+        log('Started; authenticated data channel, edits require local test-project approval')
         local last_request, last_reply
         while not bridge.stopped do
             if native.read(root .. '\\session.key') ~= raw_key then log('Session changed; restart required'); break end
