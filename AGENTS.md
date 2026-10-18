@@ -4,6 +4,7 @@
 Windows 11 + DaVinci Resolve 21.1.1.10 무료 버전에서 ChatGPT Desktop Work를 통해 프로젝트를 조회하고, 안전하게 9:16 팩트체크 쇼츠를 자동 편집·렌더링하는 로컬 연동을 개발합니다. 실제 완성 영상의 제작과 재현 가능한 테스트가 최종 목표입니다.
 
 ## 사용자 환경에서 검증된 사실
+- 후속 실기기 결과: Console HMAC `authenticated_ping` 및 저장 응답 인증 PASS, 최소 Utility 실행 표식 확인. 통신 진단은 완료했으며 반복하지 않습니다. 실제 편집은 NOT_RUN입니다. Utility 전체 자동 처리와 새 편집 검증기는 별도 미검증입니다.
 - Windows 11, RTX 3080 10GB, RAM 16GB, Python 3.12.10
 - DaVinci Resolve 21.1.1.10 Free
 - 내부 Lua: `resolve` 및 Fusion 객체 접근, `loadfile`, `dofile`, `fusion:SetPrefs`, `fusion:SavePrefs` 사용 가능; `io`는 nil
