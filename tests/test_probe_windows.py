@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from lupa.luajit21 import LuaRuntime
 from resolve_mcp.bundle import bundle, prepare_probe, utility_diagnostic
+from resolve_mcp.console_connection import prepare_connection, inspect_connection, ping_connection
 from resolve_mcp.inspection import inspect_probe
 from resolve_mcp.protocol import request,response
 from resolve_mcp.transport import Mailbox,atomic_write,read_data
@@ -175,3 +176,39 @@ class ProbeWindowsTests(unittest.TestCase):
             row=inspect_probe(root/'probe-info.json')['contexts']['Utility']
             self.assertEqual(row['status'],'PREPARED')
             self.assertIn('dialogs',row['interpretation'])
+
+    def test_manual_console_processes_python_signed_ping_with_real_win32_io(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import time
+        with TemporaryDirectory(prefix='콘솔_') as temporary,patch.dict(os.environ,{
+            'LOCALAPPDATA':temporary,'APPDATA':str(Path(temporary)/'roaming')}):
+            info=prepare_connection();root=Path(info['root'])
+            self.lua.execute('bmd=nil;fusion=nil')
+            session=self.lua.execute(Path(info['console_script']).read_text(encoding='utf-8'))
+            self.assertEqual(session.mode,'manual-read-only')
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future=pool.submit(ping_connection,root/'connection-info.json')
+                until=time.monotonic()+5
+                packet=Path(info['mailbox'])/'request.txt'
+                while not packet.exists() and time.monotonic()<until:time.sleep(0.005)
+                self.assertTrue(packet.exists())
+                self.assertEqual(session.step(),(True,'REPLIED'))
+                result=future.result(timeout=3)
+            self.assertEqual(result['authenticated_ping'],'PASS')
+            self.assertEqual(result['editing_test'],'NOT_RUN')
+            self.assertTrue(session.close())
+            self.assertFalse((Path(info['mailbox'])/'approval.txt').exists())
+
+    def test_micro_preparation_keeps_existing_scripts_and_records_only_log_markers(self):
+        with TemporaryDirectory() as temporary,patch.dict(os.environ,{
+            'LOCALAPPDATA':temporary,'APPDATA':str(Path(temporary)/'roaming')}):
+            utility=Path(os.environ['APPDATA'])/'Blackmagic Design'/'DaVinci Resolve'/'Support'/'Fusion'/'Scripts'/'Utility'
+            utility.mkdir(parents=True);original=utility/'ResolveMCPNext.lua';original.write_bytes(b'existing bridge')
+            info=prepare_connection();root=Path(info['root'])
+            self.assertEqual(original.read_bytes(),b'existing bridge')
+            self.assertEqual(len(Path(info['utility_menu_script']).read_text().splitlines()),2)
+            logs=Path(info['log_directory']);logs.mkdir()
+            (logs/'ResolveDebug.txt').write_text('RMC_UTILITY_ERROR_'+info['connection_id'])
+            report=inspect_connection(root/'connection-info.json')
+            self.assertEqual(report['utility']['log_scan'],'MARKER_OBSERVED')
+            self.assertEqual(report['utility']['menu_script_integrity'],'MATCH')

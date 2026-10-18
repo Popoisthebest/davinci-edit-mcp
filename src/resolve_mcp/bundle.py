@@ -9,7 +9,7 @@ import uuid
 BRIDGE = Path(__file__).parent / 'bridge'
 MODULES = {'runtime':'runtime.lua','native':'native.lua','crypto':'crypto.lua',
            'codec':'codec.lua','reads':'reads.lua','core':'core.lua',
-           'bridge':'ResolveMCP3.lua','probe':'probe.lua'}
+           'bridge':'ResolveMCP3.lua','probe':'probe.lua','console':'console.lua'}
 
 
 def lua_string(value: str) -> str:
@@ -32,6 +32,18 @@ def utility_diagnostic(root: Path) -> str:
     source = (BRIDGE/'utility_entry.lua').read_text(encoding='ascii')
     source = source.replace('-- FIXED_REGISTRY',loader_source(('runtime','codec','native'))+'return module')
     return source + f'\nreturn diagnose({lua_string(str(root))})\n'
+
+
+def console_bundle(root: Path) -> str:
+    names=('runtime','native','crypto','codec','reads','core','console')
+    return loader_source(names)+f"return module('console').new({lua_string(str(root))})\n"
+
+
+def utility_path_check(identifier: str) -> str:
+    if len(identifier) != 32 or any(c not in '0123456789abcdef' for c in identifier):
+        raise ValueError('Invalid path check identifier')
+    return (f'if type(print) == "function" then pcall(print,"RMC_UTILITY_ENTER_{identifier}") end\n'
+            f'error("RMC_UTILITY_ERROR_{identifier} (intentional path check)",0)\n')
 
 
 def bundle(probe_root: Path | None = None, context: str = 'Console') -> str:

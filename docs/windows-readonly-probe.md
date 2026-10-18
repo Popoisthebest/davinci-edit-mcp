@@ -1,5 +1,7 @@
 # Windows 실기기 조회 전용 진단
 
+현재 경로: 재시작 후 기존 브리지가 없는 v3 Utility도 무반응이라는 사용자 증거를 반영했습니다. 이전 진단을 반복하지 않으며 [두 줄 Utility 경로 검사·Console 대체 연결](console-fallback.md)을 제공합니다.
+
 최신 실기기 결과: v2 Console 전체 PASS, 실제 Utility 메뉴 `ResolveMCP_ReadOnlyProbe_v2_d9114720`은 반복 실행해도 PREPARED / NOT_ENTERED였습니다. 같은 v2 검사를 반복하도록 요청하지 않습니다. 원인 분석과 별도의 소형 진입 진단은 [Utility 진입 진단 v3](utility-startup-diagnosis.md)에 있습니다. 아래 v2 절차는 일반 조회 검사용 기록이며 현재 Utility 문제의 다음 단계가 아닙니다.
 
 먼저 이 진단만 실행합니다. 클립 편집·프로젝트 생성/전환/저장·미디어 import·승인 생성·Fusion prefs 변경·상주 브리지 시작을 하지 않습니다. 실제 편집 검증은 Console과 Utility 결과를 확인한 뒤 사용자의 후속 승인에 따릅니다. v0.4 코드의 존재나 CI 통과는 이 순서를 생략하는 근거가 아닙니다.

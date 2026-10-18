@@ -1,5 +1,7 @@
 # Utility 진입 진단 v3
 
+최신 사용자 결과: Resolve 완전 종료·재시작 후 기존 브리지를 실행하지 않아도 v3 Utility는 무반응이었습니다. 같은 v3 검사나 재시작을 반복하지 않습니다. 이 문서는 이전 분석 기록이며 현재의 최소 Utility 파일과 Console 대안은 [Console 대체 연결](console-fallback.md)에 있습니다.
+
 ## 현재 증거와 분석
 
 사용자는 Windows 11 / Resolve 21.1.1 Free에서 v2 Console 전체 PASS를 확인했습니다. 실제 Utility 메뉴의 `ResolveMCP_ReadOnlyProbe_v2_d9114720`을 반복 실행해도 파일 기록은 PREPARED / NOT_ENTERED였습니다. 이 결과를 보존하며 같은 v2 검사나 Console 전체 검사를 다시 요구하지 않습니다. 실제 편집과 PR 병합은 보류합니다.
