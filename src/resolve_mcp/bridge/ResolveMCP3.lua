@@ -1,56 +1,62 @@
--- Install this file beside the trusted modules with scripts/Install.ps1.
--- Run from Workspace > Scripts > Utility > ResolveMCP3. No fusion:Execute loop.
-local function log(message) print('[ResolveMCP v0.4] ' .. message) end
-local ok = pcall(function()
-    assert(debug and debug.getinfo and bmd and type(bmd.wait) == 'function', 'Required host functions unavailable')
-    local source = debug.getinfo(1,'S').source
-    assert(source:sub(1,1) == '@', 'Start the installed script from the Utility menu')
-    local directory = source:sub(2):match('^(.*[/\\])')
-    assert(directory, 'Script directory unavailable')
-    local native = dofile(directory .. 'native.lua')
-    local crypto = dofile(directory .. 'crypto.lua')
-    local codec = dofile(directory .. 'codec.lua')
-    local reads = dofile(directory .. 'reads.lua')
-    local edits = dofile(directory .. 'edits.lua')
-    local core = dofile(directory .. 'core.lua')
-    local root = native.root()
-    local release = native.acquire(crypto.sha256(root))
-    if not release then log('Another bridge already owns this mailbox'); return end
-    local ran = pcall(function()
+-- Trusted factory module. Install.ps1 embeds it with a fixed module registry.
+local module = ...
+local M = {}
+function M.load_modules()
+    return module('edits') -- definitions only; no approval/dispatcher or mutation
+end
+function M.operations(resolve_object,codec,key,adapter)
+    local crypto = module('crypto')
+    local operations,invoke = module('reads').new(resolve_object,codec)
+    local writable = module('edits').new(resolve_object,codec,crypto,key,adapter,invoke)
+    for name,operation in pairs(writable) do operations[name] = operation end
+    local original_ping = operations.ping
+    operations.ping = function()
+        local result = original_ping()
+        result.writes_enabled = nil -- tool exposure remains a per-client setting
+        result.version,result.writes_require_local_approval,result.writes_default_disabled = '0.4.0',true,true
+        return result
+    end
+    return operations,writable
+end
+function M.run()
+    local function log(message) print('[ResolveMCP v0.4] ' .. message) end
+    local release
+    local stage = 'global libraries'
+    local ok = pcall(function()
+        local runtime = module('runtime')
+        runtime.ffi(); runtime.bit()
+        assert(bmd and type(bmd.wait) == 'function','Host wait unavailable')
+        local native,crypto,codec = module('native'),module('crypto'),module('codec')
+        local root = native.root()
+        stage = 'mailbox mutex'
+        release = native.acquire(crypto.sha256(root))
+        if not release then log('Another bridge already owns this mailbox'); return end
+        stage = 'session key'
         local raw_key = native.read(root .. '\\session.key')
-        assert(raw_key and #raw_key == 64, 'Initialize the Python mailbox first')
+        assert(raw_key and #raw_key == 64,'Initialize the Python mailbox first')
         local key = crypto.unhex(raw_key)
-        local resolve_object = rawget(_G,'resolve')
-        if not resolve_object and type(bmd.scriptapp) == 'function' then resolve_object = bmd.scriptapp('Resolve') end
-        assert(resolve_object, 'Resolve object unavailable')
-        local operations,invoke = reads.new(resolve_object,codec)
-        local writable = edits.new(resolve_object,codec,crypto,key,{
+        stage = 'Resolve read handlers'
+        local operations,writable = M.operations(runtime.resolve(),codec,key,{
             root=root,read=native.read,canonical_file=native.canonical_file,
             canonical_directory=native.canonical_directory,random_hex=native.random_hex,now=os.time,
-        },invoke)
-        for name,operation in pairs(writable) do operations[name] = operation end
-        local original_ping = operations.ping
-        operations.ping = function()
-            local result = original_ping()
-            result.writes_enabled = nil -- write-tool exposure is a per-client setting
-            result.version,result.writes_require_local_approval,result.writes_default_disabled = '0.4.0',true,true
-            return result
-        end
-        local bridge = core.new(crypto,codec,operations,key,native.random_hex(),writable)
+        })
+        local bridge = module('core').new(crypto,codec,operations,key,native.random_hex(),writable)
         log('Started; authenticated data channel, edits require local test-project approval')
-        local last_request, last_reply
+        stage = 'mailbox polling'
+        local last_request
         while not bridge.stopped do
             if native.read(root .. '\\session.key') ~= raw_key then log('Session changed; restart required'); break end
             local packet = native.read(root .. '\\request.txt')
             if packet and packet ~= last_request then
                 local reply = bridge:process(packet,os.time())
                 if reply then native.write(root .. '\\response.txt',reply) end
-                last_request, last_reply = packet, reply
+                last_request = packet
             end
             bmd.wait(0.02)
         end
     end)
-    release()
-    if not ran then log('Stopped after an error. Check LuaJIT/FFI, mailbox ACL and API capabilities; no automatic retry') end
-end)
-if not ok then log('Cannot start. Windows LuaJIT/FFI and trusted installed modules are required; no loadfile fallback') end
+    if release then release() end
+    if not ok then log('Stopped at ' .. stage .. '; run the separate read-only probe for details') end
+    return ok
+end
+return M

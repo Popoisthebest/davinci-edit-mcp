@@ -5,14 +5,15 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from lupa.luajit21 import LuaError, LuaRuntime
-from tests.support import BRIDGE
+from tests.support import BRIDGE, restricted_loader
 
 
 @unittest.skipUnless(os.name == 'nt','Requires Windows file identity/reparse APIs')
 class NativeEditingWindowsTests(unittest.TestCase):
     def setUp(self):
         self.lua=LuaRuntime(unpack_returned_tuples=True)
-        self.native=self.lua.execute((BRIDGE/'native.lua').read_text(encoding='utf-8'))
+        self.modules=restricted_loader(self.lua)
+        self.native=self.modules('native')
 
     def test_unicode_media_file_and_directory_identity(self):
         with TemporaryDirectory() as temporary:

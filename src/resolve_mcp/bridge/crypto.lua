@@ -1,5 +1,6 @@
 -- Original implementation: SHA-256/HMAC using LuaJIT bit operations.
-local bit = require('bit')
+local module = ...
+local bit = module('runtime').bit()
 local band, bxor, bnot, ror, rshift = bit.band, bit.bxor, bit.bnot, bit.ror, bit.rshift
 local M = {}
 local K = {

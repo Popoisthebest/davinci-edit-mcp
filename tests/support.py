@@ -7,8 +7,18 @@ import time
 from lupa.luajit21 import LuaRuntime
 
 from resolve_mcp.transport import atomic_write, read_data
+from resolve_mcp.bundle import loader_source
 
 BRIDGE = Path(__file__).resolve().parents[1] / 'src/resolve_mcp/bridge'
+
+
+def restricted_loader(lua):
+    # Only the test harness uses the LuaJIT package system to inject host globals.
+    # Every production module then runs with the same omissions as Resolve.
+    lua.globals().ffi=lua.eval("require('ffi')")
+    lua.globals().bit=lua.eval("require('bit')")
+    lua.execute('require=nil; package=nil; io=nil; debug=nil; loadfile=nil; dofile=nil')
+    return lua.execute(loader_source()+'\nreturn module')
 
 FAKE_RESOLVE = r'''
 local item = {GetName=function() return '클립' end,GetStart=function() return 10 end,GetEnd=function() return 40 end}
@@ -40,6 +50,7 @@ return {resolve={GetVersionString=function() return '21.1.1 MOCK' end,GetProject
 class LuaBridge:
     def __init__(self, key: bytes, instance='b' * 32):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
+        self.modules = restricted_loader(self.lua)
         self.crypto = self.load('crypto.lua')
         self.codec = self.load('codec.lua')
         self.api = self.lua.execute(FAKE_RESOLVE)
@@ -50,7 +61,8 @@ class LuaBridge:
         self.instance = instance
 
     def load(self, filename):
-        return self.lua.execute((BRIDGE / filename).read_text(encoding='utf-8'))
+        name = 'bridge' if filename == 'ResolveMCP3.lua' else filename.removesuffix('.lua')
+        return self.modules(name)
 
     def process(self, packet: bytes, now=None):
         result = self.core.process(self.core, packet, time.time() if now is None else now)
