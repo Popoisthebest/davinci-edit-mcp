@@ -84,6 +84,18 @@ class ProtocolTests(unittest.TestCase):
         self.call('timelines', instance=self.bridge.instance)
         self.call('media_pool', instance=self.bridge.instance)
 
+    def test_media_pool_numeric_flags_are_metadata_and_real_clips_remain_visible(self):
+        self.bridge.lua.execute('''
+            fixture.folder.GetSubFolderList=function() return {_flags=2097152} end
+            fixture.folder.GetClipList=function() return {_flags=2097152} end
+        ''')
+        result=self.call('media_pool',instance=self.bridge.instance)
+        self.assertEqual(len(result['bins']),1)
+        self.assertEqual(result['bins'][0]['clips'],[])
+        self.bridge.lua.execute('fixture.folder.GetClipList=function() return {_flags=2097152,fixture.clip} end')
+        result=self.call('media_pool',instance=self.bridge.instance)
+        self.assertEqual([clip['id'] for clip in result['bins'][0]['clips']],['media-1'])
+
     def test_unsupported_api_is_explicit(self):
         self.bridge.api.project.GetCurrentRenderFormatAndCodec = None
         with self.assertRaisesRegex(BridgeError, 'UNSUPPORTED_API'):

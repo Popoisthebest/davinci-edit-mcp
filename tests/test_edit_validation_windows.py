@@ -22,6 +22,9 @@ class EditValidationWindowsTests(unittest.TestCase):
             lua=LuaRuntime(unpack_returned_tuples=True);restricted_loader(lua)
             api=lua.execute(FAKE_RESOLVE);lua.globals().fixture=api;lua.globals().resolve=api.resolve
             lua.execute(EDIT_API+";fixture.media_frames='90';fixture.current=fixture.make_bootstrap('"+info['bootstrap_project_name']+"')")
+            # Actual Win32/HMAC path must exercise all three metadata-only lists.
+            for field in ['clips','folders','jobs']:
+                self.assertEqual(lua.eval('fixture.bootstrap.'+field+'._flags'),2097152)
             lua.globals().host_wait=time.sleep
             lua.execute('bmd={wait=function(seconds) host_wait(seconds) end}')
             session=lua.execute(Path(info['service_script']).read_text(encoding='utf-8'))

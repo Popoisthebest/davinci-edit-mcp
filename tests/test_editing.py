@@ -70,6 +70,69 @@ class EditingTests(unittest.TestCase):
         self.box.bridge_id=self.bridge.instance
         approve_bootstrap(self.box,load_approval(self.box),name,self.bridge.call('current_project'))
 
+    def test_bootstrap_accepts_empty_or_only_numeric_flags_in_all_three_lists(self):
+        for expression in ['{}','{_flags=0}','{_flags=2097152}','{_flags=-2.5}']:
+            with self.subTest(expression=expression):
+                self.bridge=EditBridge(self.box)
+                self.bootstrap_approval()
+                for field in ['clips','folders','jobs']:
+                    self.bridge.lua.execute('fixture.bootstrap.'+field+'='+expression)
+                result=self.bridge.call('create_test_project')
+                self.assertEqual(result['name'],self.name)
+                self.assertEqual(list(self.bridge.api.mutations.values()).count('CloseBootstrap'),1)
+
+    def assert_bootstrap_lists_denied(self,expressions):
+        for field in ['clips','folders','jobs']:
+            for expression in expressions:
+                with self.subTest(field=field,expression=expression):
+                    self.bridge=EditBridge(self.box)
+                    self.bootstrap_approval()
+                    self.bridge.lua.execute('fixture.bootstrap.'+field+'='+expression)
+                    with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):
+                        self.bridge.call('create_test_project')
+                    self.assertEqual(len(self.bridge.api.mutations),0)
+                    self.assertEqual(self.bridge.api.current.uid,'bootstrap-unique-id')
+
+    def test_bootstrap_flags_never_hide_real_sparse_or_named_items(self):
+        self.assert_bootstrap_lists_denied([
+            '{_flags=2097152,[1]={}}','{_flags=0,[9]={}}',
+            '{_flags=0,[0]=false}','{_flags=0,render_job={}}',
+        ])
+
+    def test_bootstrap_rejects_unknown_metadata_or_malformed_flags_in_each_list(self):
+        self.assert_bootstrap_lists_denied([
+            "{_flags='0'}",'{_flags=false}','{_flags={}}','{_flags=function() end}',
+            '{_flags=math.huge}','{_flags=-math.huge}','{_flags=0/0}',
+            '{_flags=0,_count=0}','{_FLAGS=0}','{_flags=0,items={}}',
+        ])
+
+    def test_bootstrap_rejects_non_table_and_metatable_list_structures(self):
+        self.assert_bootstrap_lists_denied([
+            'nil','false','0',"'empty'",'function() return {} end','ffi.new("int",0)',
+            'setmetatable({_flags=0},{__index={hidden_item={}}})',
+            'setmetatable({_flags=0,[1]={}},{__pairs=function() error("must not run") end})',
+        ])
+
+    def test_numeric_flags_do_not_relax_timeline_guards(self):
+        for script in ['fixture.bootstrap.timelines=1',
+                       'fixture.bootstrap.GetCurrentTimeline=function() return {} end']:
+            with self.subTest(script=script):
+                self.bridge=EditBridge(self.box)
+                self.bootstrap_approval()
+                self.bridge.lua.execute(script)
+                with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+                self.assertEqual(len(self.bridge.api.mutations),0)
+
+    def test_numeric_flags_do_not_hide_content_added_before_close(self):
+        for field in ['clips','folders','jobs']:
+            with self.subTest(field=field):
+                self.bridge=EditBridge(self.box)
+                self.bootstrap_approval()
+                self.bridge.lua.execute('fixture.manager.GetProjectListInCurrentFolder=function() '
+                    'fixture.bootstrap.'+field+'[9]={};return {} end')
+                with self.assertRaisesRegex(BridgeError,'WRITE_DENIED'):self.bridge.call('create_test_project')
+                self.assertEqual(len(self.bridge.api.mutations),0)
+
     def test_bootstrap_grant_rejects_restart_reapproval_and_changed_identity(self):
         self.bootstrap_approval()
         for script in ["fixture.bootstrap.uid='another-id'", "fixture.bootstrap.name='another-name'"]:

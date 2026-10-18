@@ -48,6 +48,17 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         end
         return {name=name,id=id}
     end
+    local function empty_sdk_list(list)
+        -- Resolve can return {_flags=<number>} for an empty SDK list.
+        -- This is the only metadata exception. Do not use #/ipairs here:
+        -- sparse or named entries must still prevent closing the project.
+        if type(list)~='table' or getmetatable(list)~=nil then return false end
+        for name,value in next,list do
+            if name~='_flags' or type(value)~='number' or value~=value
+                or value==math.huge or value==-math.huge then return false end
+        end
+        return true
+    end
     local function empty_bootstrap(expected)
         local p=invoke(manager(),'GetCurrentProject')
         if not p or invoke(p,'GetName')~=expected.name or invoke(p,'GetUniqueId')~=expected.id then
@@ -56,8 +67,9 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         local root=invoke(invoke(p,'GetMediaPool'),'GetRootFolder')
         local clips,folders,jobs=invoke(root,'GetClipList'),invoke(root,'GetSubFolderList'),invoke(p,'GetRenderJobList')
         if tonumber(invoke(p,'GetTimelineCount'))~=0 or invoke(p,'GetCurrentTimeline')
-            or type(clips)~='table' or next(clips)~=nil or type(folders)~='table' or next(folders)~=nil
-            or type(jobs)~='table' or next(jobs)~=nil then deny('Bootstrap must have no timelines, media, bins or render jobs') end
+            or not empty_sdk_list(clips) or not empty_sdk_list(folders) or not empty_sdk_list(jobs) then
+            deny('Bootstrap must have no timelines, media, bins or render jobs; unknown list structures are denied')
+        end
         local active=invoke(manager(),'GetCurrentProject')
         if not active or invoke(active,'GetUniqueId')~=expected.id or invoke(active,'GetName')~=expected.name then
             deny('Current project changed during bootstrap inspection')
