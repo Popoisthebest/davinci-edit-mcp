@@ -26,7 +26,7 @@ if not R or not F then log('Resolve/Fusion object unavailable'); return end
 
 local base = os.getenv('LOCALAPPDATA')
 if not base or base == '' then log('LOCALAPPDATA unavailable'); return end
-local request_path = base .. '\ResolveMCP\command_v2.lua'
+local request_path = base .. '\\ResolveMCP\\command_v2.lua'
 local response_key = 'Global.ResolveMCPBridgeV2.Response'
 local last_id = nil
 
