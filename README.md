@@ -2,7 +2,7 @@
 
 DaVinci Resolve Free Edition을 위한 AI 영상 편집 MCP 개발 프로젝트입니다.
 
-실기기에서 확인된 기준선은 Windows 11 + DaVinci Resolve 21.1.1.10 Free에서 사용자 테스트를 통과한 v0.2의 읽기 전용 연결입니다. v0.3 조회·통신 개선과 v0.4 테스트 프로젝트 편집은 구현했으며 모의 Resolve로 자동 검사합니다. 신규 코드의 실제 Resolve 호환성과 편집 결과는 미검증입니다. 렌더링 자동화는 아직 구현하지 않았습니다.
+Windows 11 + DaVinci Resolve 21.1.1 Free 실기기에서 Console HMAC 통신·응답 인증과 최소 Utility 실행 표식이 확인됐습니다. 통신 진단은 완료했으며 [현재 검증 상태](docs/verification-status.md)에 증거와 한계를 기록했습니다. v0.4 신규 테스트 프로젝트 편집의 구현·검증 준비는 [PR #2](https://github.com/Popoisthebest/davinci-edit-mcp/pull/2)에 있으며 실제 편집은 아직 NOT_RUN입니다. 렌더링 자동화는 미구현입니다.
 
 ## 검증된 기능 (v0.2)
 

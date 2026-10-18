@@ -34,9 +34,29 @@ def utility_diagnostic(root: Path) -> str:
     return source + f'\nreturn diagnose({lua_string(str(root))})\n'
 
 
-def console_bundle(root: Path) -> str:
+def console_bundle(root: Path, *, enable_edits: bool = False) -> str:
     names=('runtime','native','crypto','codec','reads','core','console')
-    return loader_source(names)+f"return module('console').new({lua_string(str(root))})\n"
+    if enable_edits:
+        if 'edits' not in MODULES:raise ValueError('Editing requires the v0.4 source')
+        names+=('bridge','edits')
+    enabled='true' if enable_edits else 'false'
+    return loader_source(names)+f"return module('console').new({lua_string(str(root))},{enabled})\n"
+
+
+def utility_launcher(payload: Path, identifier: str, seconds: int = 180) -> str:
+    utility_path_check(identifier) # validate the fixed build-time ID
+    if type(seconds) is not int or not 1 <= seconds <= 600:raise ValueError('Invalid service duration')
+    # Only this trusted, owner-protected absolute payload is loaded. Never read
+    # code paths from requests. A separate chunk makes compile errors catchable.
+    return (f'if type(print)=="function" then pcall(print,"RMC_AUTO_ENTER_{identifier}") end\n'
+            'local ok,err=pcall(function()\n'
+            'assert(type(loadfile)=="function","BOOTSTRAP_LOADFILE_UNAVAILABLE")\n'
+            f'local chunk,why=loadfile({lua_string(str(payload))})\n'
+            'assert(chunk,"PAYLOAD_COMPILE: "..tostring(why))\n'
+            'local session=chunk()\n'
+            f'session.run({seconds},"Utility")\n'
+            'end)\n'
+            'if not ok then error("ResolveMCP bootstrap: "..tostring(err),0) end\n')
 
 
 def utility_path_check(identifier: str) -> str:

@@ -11,10 +11,11 @@ from resolve_mcp.transport import read_data
 parser=argparse.ArgumentParser(description=__doc__)
 group=parser.add_mutually_exclusive_group(required=True)
 group.add_argument('--prepare',action='store_true')
+group.add_argument('--prepare-auto',action='store_true',help='Prepare bounded Utility/Console automatic reads')
 group.add_argument('--inspect',type=Path,metavar='INFO')
 group.add_argument('--ping',type=Path,metavar='INFO')
 args=parser.parse_args()
-if args.prepare:result=prepare_connection()
+if args.prepare or args.prepare_auto:result=prepare_connection(automatic=args.prepare_auto)
 elif args.inspect:result=inspect_connection(args.inspect)
 else:
     from concurrent.futures import ThreadPoolExecutor

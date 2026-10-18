@@ -82,8 +82,13 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         schema(params,{})
         local grant = approval()
         if state.project or invoke(manager(),'GetCurrentProject') then deny('Close all projects before creating a fresh test project') end
-        for _,name in pairs(invoke(manager(),'GetProjectListInCurrentFolder')) do
-            if name:lower() == grant.name:lower() then deny('Test project already exists; never reuse it') end
+        local names=invoke(manager(),'GetProjectListInCurrentFolder')
+        if type(names)~='table' then deny('Invalid project list') end
+        local count=0
+        for _,name in pairs(names) do
+            count=count+1
+            if count>1000 then deny('Too many project entries to verify') end
+            if type(name)=='string' and name:lower() == grant.name:lower() then deny('Test project already exists; never reuse it') end
         end
         local p = invoke(manager(),'CreateProject',grant.name)
         if not p then error('API_ERROR:CreateProject failed') end

@@ -1,5 +1,7 @@
 # Utility 진입 진단 v3
 
+후속 실기기 결과로 최소 Utility 실행 표식과 Console HMAC 왕복·응답 인증이 확인됐습니다. 이 과거 진단을 반복하지 않습니다. [현재 증거와 다음 단계](verification-status.md)를 따릅니다.
+
 최신 사용자 결과: Resolve 완전 종료·재시작 후 기존 브리지를 실행하지 않아도 v3 Utility는 무반응이었습니다. 같은 v3 검사나 재시작을 반복하지 않습니다. 이 문서는 이전 분석 기록이며 현재의 최소 Utility 파일과 Console 대안은 [Console 대체 연결](console-fallback.md)에 있습니다.
 
 ## 현재 증거와 분석
