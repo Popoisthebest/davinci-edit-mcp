@@ -83,9 +83,17 @@ def read_data(path: Path, limit: int = MAX_PACKET + 1) -> bytes:
     kernel.CreateFileW.argtypes = [w.LPCWSTR,w.DWORD,w.DWORD,w.LPVOID,w.DWORD,w.DWORD,w.HANDLE]
     kernel.CreateFileW.restype = w.HANDLE
     kernel.CloseHandle.argtypes = [w.HANDLE]
-    handle = kernel.CreateFileW(str(path),0x80000000,7,None,3,0x200000,None)
-    if handle == ctypes.c_void_p(-1).value:
-        raise ctypes.WinError(ctypes.get_last_error())
+    until = time.monotonic() + 0.25
+    while True:
+        handle = kernel.CreateFileW(str(path),0x80000000,7,None,3,0x200000,None)
+        if handle != ctypes.c_void_p(-1).value:
+            break
+        code = ctypes.get_last_error()
+        # ReplaceFile briefly holds its replacement handle without sharing.
+        # Retry only the read, never a published command or a Resolve API call.
+        if code not in (32,33) or time.monotonic() >= until:
+            raise ctypes.WinError(code)
+        time.sleep(0.002)
     try:
         descriptor = msvcrt.open_osfhandle(handle,os.O_RDONLY | os.O_BINARY)
     except BaseException:

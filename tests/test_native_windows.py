@@ -53,3 +53,25 @@ class NativeWindowsTests(unittest.TestCase):
                     with patch('resolve_mcp.transport.os.fdopen',side_effect=open_mode):
                         self.assertEqual(read_data(path),b'old')
                     self.assertEqual(read_data(path),b'new')
+
+    def test_transient_exclusive_handle_does_not_kill_readers(self):
+        import ctypes
+        from ctypes import wintypes as w
+        import threading
+        kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        kernel.CreateFileW.argtypes=[w.LPCWSTR,w.DWORD,w.DWORD,w.LPVOID,w.DWORD,w.DWORD,w.HANDLE]
+        kernel.CreateFileW.restype=w.HANDLE
+        kernel.CloseHandle.argtypes=[w.HANDLE]
+        with TemporaryDirectory() as temporary:
+            path=Path(temporary)/'교체.txt'
+            atomic_write(path,b'complete packet')
+            handle=kernel.CreateFileW(str(path),0x80000000,0,None,3,0,None)
+            self.assertNotEqual(handle,ctypes.c_void_p(-1).value)
+            try:self.assertIsNone(self.native.read(str(path)))
+            except BaseException:
+                kernel.CloseHandle(handle)
+                raise
+            release=threading.Timer(0.03,lambda:kernel.CloseHandle(handle))
+            release.start()
+            try:self.assertEqual(read_data(path),b'complete packet')
+            finally:release.join()
