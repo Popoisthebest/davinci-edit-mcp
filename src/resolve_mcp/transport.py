@@ -46,7 +46,22 @@ def atomic_write(path: Path, data: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         safe_path(path)
-        os.replace(temporary, path)
+        if os.name == 'nt':
+            # MoveFileEx (used by os.replace) can reject replacement of an open
+            # destination even when the reader shares DELETE. ReplaceFile is
+            # designed for replacing an existing file and preserves its ACL.
+            import ctypes
+            from ctypes import wintypes as w
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.ReplaceFileW.argtypes = [w.LPCWSTR,w.LPCWSTR,w.LPCWSTR,w.DWORD,w.LPVOID,w.LPVOID]
+            kernel.ReplaceFileW.restype = w.BOOL
+            if not kernel.ReplaceFileW(str(path),str(temporary),None,0,None,None):
+                code = ctypes.get_last_error()
+                if code not in (2,3):raise ctypes.WinError(code)
+                # There is no existing file on the first publication.
+                os.replace(temporary,path)
+        else:
+            os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 

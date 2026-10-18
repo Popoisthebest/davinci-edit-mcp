@@ -38,16 +38,18 @@ class NativeWindowsTests(unittest.TestCase):
         import os
         with TemporaryDirectory() as temporary:
             path=Path(temporary)/'교체.txt'
-            atomic_write(path,b'old')
             original_fdopen=os.fdopen
-            def open_mode(descriptor,mode,*args,**kwargs):
-                if mode == 'rb':
-                    # read_data owns the open Windows handle at this point.
-                    try:atomic_write(path,b'new')
-                    except BaseException:
-                        os.close(descriptor)
-                        raise
-                return original_fdopen(descriptor,mode,*args,**kwargs)
-            with patch('resolve_mcp.transport.os.fdopen',side_effect=open_mode):
-                self.assertEqual(read_data(path),b'old')
-            self.assertEqual(read_data(path),b'new')
+            for writer in [lambda:atomic_write(path,b'new'),lambda:self.native.write(str(path),'new')]:
+                with self.subTest(writer=writer):
+                    atomic_write(path,b'old')
+                    def open_mode(descriptor,mode,*args,**kwargs):
+                        if mode == 'rb':
+                            # The Windows read handle remains open during replacement.
+                            try:writer()
+                            except BaseException:
+                                os.close(descriptor)
+                                raise
+                        return original_fdopen(descriptor,mode,*args,**kwargs)
+                    with patch('resolve_mcp.transport.os.fdopen',side_effect=open_mode):
+                        self.assertEqual(read_data(path),b'old')
+                    self.assertEqual(read_data(path),b'new')

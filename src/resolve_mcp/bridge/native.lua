@@ -14,6 +14,7 @@ int WriteFile(void*,const void*,unsigned long,unsigned long*,void*);
 int FlushFileBuffers(void*);
 int CloseHandle(void*);
 int MoveFileExW(const wchar_t*,const wchar_t*,unsigned long);
+int ReplaceFileW(const wchar_t*,const wchar_t*,const wchar_t*,unsigned long,void*,void*);
 int DeleteFileW(const wchar_t*);
 void* CreateMutexW(void*,int,const wchar_t*);
 unsigned long WaitForSingleObject(void*,unsigned long);
@@ -89,8 +90,14 @@ function M.write(path,data)
     local ok = K.WriteFile(handle,data,#data,count,nil)
     local flushed = K.FlushFileBuffers(handle)
     K.CloseHandle(handle)
-    local moved = ok ~= 0 and count[0] == #data and flushed ~= 0
-        and K.MoveFileExW(wide(temporary),wide(path),9) ~= 0
+    local moved = false
+    if ok ~= 0 and count[0] == #data and flushed ~= 0 then
+        moved = K.ReplaceFileW(wide(path),wide(temporary),nil,0,nil,nil) ~= 0
+        if not moved then
+            local code = K.GetLastError()
+            if code == 2 or code == 3 then moved = K.MoveFileExW(wide(temporary),wide(path),9) ~= 0 end
+        end
+    end
     if not moved then K.DeleteFileW(wide(temporary)); error('Atomic response write failed') end
 end
 function M.acquire(name)
