@@ -71,7 +71,9 @@ function M.read(path)
     local handle = K.CreateFileW(wide(path),2147483648,7,nil,3,2097152,nil)
     if handle == invalid then
         local code = K.GetLastError()
-        if code == 2 or code == 3 then return nil end
+        -- ReplaceFile can briefly retain a non-shared replacement handle.
+        -- Let the next polling tick read it; do not stop/re-execute a command.
+        if code == 2 or code == 3 or code == 32 or code == 33 then return nil end
         error('Mailbox read failed')
     end
     local buffer, count = ffi.new('char[1048577]'), ffi.new('unsigned long[1]')
