@@ -76,6 +76,93 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         end
         return p
     end
+    local function close_bootstrap(p,boot,grant)
+        if type(adapter.write)~='function' or type(adapter.wait)~='function'
+            or type(adapter.monotonic_seconds)~='function' then deny('Bounded close observation unavailable') end
+        local started=adapter.monotonic_seconds()
+        local trace={transition_format=1,expected_name=boot.name,expected_id=boot.id,
+            close_call_count=0,limit_seconds=5,events=codec.array()}
+        local function scalar(ok,value)
+            local row={ok=ok,value_type=ok and type(value) or 'API_ERROR'}
+            if ok and (type(value)=='boolean' or (type(value)=='string' and #value<=256)
+                or (type(value)=='number' and value==value and math.abs(value)<math.huge)) then row.value=value end
+            return row
+        end
+        local function persist(outcome)
+            trace.outcome=outcome
+            local body=table.concat({'RMC3','PROJECT_TRANSITION',adapter.bridge_id,grant.id,crypto.hex(codec.encode(trace))},'\n')..'\n'
+            adapter.write(adapter.root .. '\\project-transition.txt',body..crypto.hmac(key,body)..'\n')
+        end
+        local function observe(phase)
+            local ok,active=pcall(function() return invoke(manager(),'GetCurrentProject') end)
+            local row={phase=phase,elapsed_ms=math.floor((adapter.monotonic_seconds()-started)*1000),
+                get_current_project=scalar(ok,active)}
+            if ok and active==nil then row.kind='NO_CURRENT_PROJECT'
+            elseif not ok then row.kind='CURRENT_PROJECT_API_ERROR'
+            elseif type(active)~='table' and type(active)~='userdata' then row.kind='INVALID_CURRENT_PROJECT_TYPE'
+            else
+                row.same_reference=rawequal(active,p)
+                local name_ok,name=pcall(invoke,active,'GetName')
+                local id_ok,id=pcall(invoke,active,'GetUniqueId')
+                row.get_name=scalar(name_ok,name);row.get_unique_id=scalar(id_ok,id)
+                if name_ok and id_ok and type(name)=='string' and #name>0 and #name<=256
+                    and type(id)=='string' and #id>0 and #id<=256 then
+                    if name==boot.name and id==boot.id then
+                        row.kind=row.same_reference and 'SAME_BOOTSTRAP_REFERENCE' or 'SAME_BOOTSTRAP_IDENTITY'
+                    else row.kind='DIFFERENT_PROJECT_ACTIVE' end
+                elseif row.same_reference then row.kind='STALE_REFERENCE_CANDIDATE'
+                else row.kind='UNKNOWN_PROJECT_IDENTITY' end
+            end
+            trace.events[#trace.events+1]=row
+            return row.kind
+        end
+        local function stop(outcome)
+            persist(outcome);deny(outcome .. '; no project creation or additional close was attempted')
+        end
+        local function lease()
+            local ok=pcall(function()
+                local fresh=approval();local renewed=bootstrap(fresh)
+                assert(fresh.id==grant.id and renewed.id==boot.id and renewed.name==boot.name)
+                assert(adapter.read(adapter.root .. '\\session.key')==crypto.hex(key))
+            end)
+            if not ok then stop('APPROVAL_OR_SESSION_REVOKED') end
+        end
+        lease()
+        local before=observe('BEFORE_CLOSE')
+        if before~='SAME_BOOTSTRAP_REFERENCE' and before~='SAME_BOOTSTRAP_IDENTITY' then stop('BOOTSTRAP_CHANGED_BEFORE_CLOSE') end
+        persist('BEFORE_CLOSE') -- A diagnostic write failure prevents CloseProject.
+        trace.close_call_count=1
+        persist('CALLING_CLOSE') -- Intent is distinct from a confirmed API return.
+        local ok,result=pcall(function() return invoke(manager(),'CloseProject',p) end)
+        trace.close_project=scalar(ok,result)
+        local kind=observe('AFTER_CLOSE')
+        persist('CLOSE_RETURNED')
+        if not ok or result~=true then
+            persist(ok and 'CLOSE_RETURN_NOT_TRUE' or 'CLOSE_API_ERROR')
+            error('API_ERROR:Bootstrap close failed; do not retry')
+        end
+        local consecutive_nil=0
+        for sample=1,102 do
+            lease()
+            if kind=='NO_CURRENT_PROJECT' then consecutive_nil=consecutive_nil+1
+            elseif kind=='SAME_BOOTSTRAP_REFERENCE' or kind=='SAME_BOOTSTRAP_IDENTITY'
+                or kind=='STALE_REFERENCE_CANDIDATE' then consecutive_nil=0
+            else stop(kind) end
+            if consecutive_nil>=2 then persist('CLOSE_CONFIRMED');break end
+            if adapter.monotonic_seconds()-started>=5 or sample==102 then
+                stop(kind=='STALE_REFERENCE_CANDIDATE' and 'STALE_REFERENCE_UNRESOLVED' or 'CLOSE_PENDING_TIMEOUT')
+            end
+            persist('WAITING_FOR_CLOSE')
+            adapter.wait(0.05) -- Reads only; never retry CloseProject.
+            kind=observe('WAIT_FOR_CLOSE')
+        end
+        return function(phase)
+            lease()
+            local kind=observe(phase)
+            if kind~='NO_CURRENT_PROJECT' then stop('PROJECT_ACTIVATED_BEFORE_CREATE') end
+            persist('READY_TO_CREATE')
+        end
+    end
     local function current(grant)
         local p = invoke(manager(),'GetCurrentProject')
         if not state.project or grant.id ~= state.approval or not p then deny('Create a fresh test project in this bridge session') end
@@ -143,14 +230,16 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         local fresh=approval()
         if fresh.id~=grant.id then deny('Approval changed before transition') end
         state.transition_started=true
+        local confirm_closed
         if boot then
             local renewed=bootstrap(fresh)
             if renewed.id~=boot.id or renewed.name~=boot.name then deny('Bootstrap approval changed before close') end
             local p=empty_bootstrap(boot)
-            if invoke(manager(),'CloseProject',p)~=true then error('API_ERROR:Bootstrap close failed; do not retry') end
+            confirm_closed=close_bootstrap(p,boot,grant)
         end
-        if invoke(manager(),'GetCurrentProject') then deny('Unexpected current project; creation stopped') end
         if approval().id~=grant.id then deny('Approval changed after bootstrap close') end
+        if confirm_closed then confirm_closed('BEFORE_CREATE')
+        elseif invoke(manager(),'GetCurrentProject') then deny('Unexpected current project; creation stopped') end
         local p = invoke(manager(),'CreateProject',grant.name)
         if not p then error('API_ERROR:CreateProject failed') end
         state.project,state.project_id,state.approval = p,invoke(p,'GetUniqueId'),grant.id

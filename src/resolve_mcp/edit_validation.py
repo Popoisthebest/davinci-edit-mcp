@@ -10,9 +10,14 @@ from .bundle import console_bundle, lua_string, utility_launcher
 from .editing import Editor, approve, approve_bootstrap, prepare_media_root
 from .permissions import protect_directory
 from .protocol import BridgeError
+from .project_transition import read_transition
 from .transport import atomic_write, read_data, safe_path
 
 FIXTURE_SHA256='84a2f1bbde10373002bccb8cf46d88738407ddc16385311acbc29d0df5e5aa10'
+
+
+def console_command(payload: Path) -> str:
+    return 'RMCEdit = dofile('+lua_string(str(payload))+'); RMCEdit.run(180,"Console",600)'
 
 
 def prepare_validation() -> dict:
@@ -33,13 +38,16 @@ def prepare_validation() -> dict:
         f'ResolveMCP_Edit_{identifier[:8]}.lua')
     menu.parent.mkdir(parents=True,exist_ok=True)
     with menu.open('x',encoding='ascii',newline='\n') as stream:stream.write(utility_launcher(payload,identifier,startup_seconds=600))
-    info={'edit_validation_format':2,'run_id':identifier,'root':str(root),'mailbox':str(editor.root),
+    command=console_command(payload)
+    atomic_write(root/'LuaConsoleCommand.txt',(command+'\n').encode('ascii'))
+    info={'edit_validation_format':3,'run_id':identifier,'root':str(root),'mailbox':str(editor.root),
         'bootstrap_project_name':'ResolveMCP_BOOT_'+identifier,
         'project_name':'ResolveMCP_TEST_probe_'+identifier[:12],'media_root':str(media),
         'fixture':str(media/'fixture.mp4'),'fixture_sha256':FIXTURE_SHA256,
         'service_script':str(payload),'service_sha256':hashlib.sha256(payload.read_bytes()).hexdigest(),
         'utility_menu_script':str(menu),'utility_sha256':hashlib.sha256(menu.read_bytes()).hexdigest(),
-        'console_command':'RMCEdit = dofile('+lua_string(str(payload))+'); RMCEdit.run(180,"Console",600)',
+        'console_command':command,'console_command_file':str(root/'LuaConsoleCommand.txt'),
+        'transition_file':str(editor.root/'project-transition.txt'),
         'result_file':str(root/'edit-result.json'),'editing_test':'NOT_RUN'}
     atomic_write(root/'edit-info.json',json.dumps(info,ensure_ascii=True,indent=2).encode('ascii'))
     return info
@@ -48,17 +56,21 @@ def prepare_validation() -> dict:
 def load_validation(info_path: Path) -> dict:
     info_path=safe_path(info_path);info=json.loads(read_data(info_path).decode('ascii'))
     identifier=info.get('run_id','')
-    if info.get('edit_validation_format')!=2 or len(identifier)!=32 or any(c not in '0123456789abcdef' for c in identifier):
+    if info.get('edit_validation_format')!=3 or len(identifier)!=32 or any(c not in '0123456789abcdef' for c in identifier):
         raise ValueError('Invalid edit validation manifest')
     root=safe_path(Path(info['root']))
     if root!=info_path.parent or root.name!='ResolveMCPEdit_'+identifier:raise ValueError('Invalid validation root')
     expected={'mailbox':root/'mailbox','media_root':root/('ResolveMCP_TEST_MEDIA_'+identifier[:12]),
-        'service_script':root/'EditService.lua','result_file':root/'edit-result.json'}
+        'service_script':root/'EditService.lua','result_file':root/'edit-result.json',
+        'console_command_file':root/'LuaConsoleCommand.txt','transition_file':root/'mailbox'/'project-transition.txt'}
     for name,path in expected.items():
         if safe_path(Path(info[name]))!=path:raise ValueError('Validation path mismatch: '+name)
     if info['project_name']!='ResolveMCP_TEST_probe_'+identifier[:12] or Path(info['fixture'])!=expected['media_root']/'fixture.mp4':
         raise ValueError('Unexpected validation target')
     if info.get('bootstrap_project_name')!='ResolveMCP_BOOT_'+identifier:raise ValueError('Unexpected bootstrap project')
+    command=console_command(expected['service_script'])
+    if info.get('console_command')!=command or read_data(expected['console_command_file'])!=(command+'\n').encode('ascii'):
+        raise ValueError('Console command integrity mismatch; prepare a fresh session')
     if not (expected['mailbox']/'session.key').is_file():raise ValueError('Prepared key missing; do not recreate')
     for path,digest in [(Path(info['fixture']),FIXTURE_SHA256),(expected['service_script'],info['service_sha256'])]:
         if hashlib.sha256(read_data(safe_path(path))).hexdigest()!=digest:raise ValueError('Validation source/fixture integrity mismatch')
@@ -78,6 +90,7 @@ def run_validation(info_path: Path, confirmation: str, bootstrap_confirmation: s
         'bootstrap_project_name':info['bootstrap_project_name'],'result':'WAITING_FOR_SERVICE',
         'stages':[],'may_have_changes':False,'automatic_retry':False}
     current_stage='WAIT_FOR_SERVICE'
+    grant=None
     def persist():atomic_write(root/'edit-result.json',json.dumps(report,ensure_ascii=True,indent=2).encode('ascii'))
     def call(op,**params):
         nonlocal current_stage
@@ -130,6 +143,14 @@ def run_validation(info_path: Path, confirmation: str, bootstrap_confirmation: s
         # cancelled. Stop is lifecycle only; no edit is automatically retried.
         safe_path(editor.root/'approval.txt').unlink(missing_ok=True)
         safe_path(editor.root/'bootstrap-approval.txt').unlink(missing_ok=True)
+        if grant is not None and editor.bridge_id is not None:
+            try:
+                evidence=read_transition(editor,grant.identifier)
+                report['project_transition_authentication']='PASS' if evidence else 'NOT_RECORDED'
+                if evidence:report['project_transition']=evidence
+            except Exception as error:
+                report['project_transition_authentication']='UNCONFIRMED'
+                report['project_transition_error']=error.code if isinstance(error,BridgeError) else type(error).__name__
         if editor.bridge_id is not None:
             try:editor.call('stop');report['service_stop']='PASS'
             except Exception:report['service_stop']='UNCONFIRMED'

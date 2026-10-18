@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from resolve_mcp.edit_validation import FIXTURE_SHA256, run_validation
+from resolve_mcp.edit_validation import FIXTURE_SHA256, console_command, run_validation
 from resolve_mcp.editing import Editor,prepare_media_root
 from resolve_mcp.transport import atomic_write
 from tests.edit_support import EditBridge
@@ -26,7 +26,11 @@ class EditValidationTests(unittest.TestCase):
         self.name='ResolveMCP_TEST_probe_'+self.id[:12]
         self.boot='ResolveMCP_BOOT_'+self.id
         self.info=self.root/'edit-info.json'
-        self.info.write_text(json.dumps({'edit_validation_format':2,'run_id':self.id,'root':str(self.root),
+        command=console_command(self.service)
+        (self.root/'LuaConsoleCommand.txt').write_text(command+'\n')
+        self.info.write_text(json.dumps({'edit_validation_format':3,'run_id':self.id,'root':str(self.root),
+            'console_command':command,'console_command_file':str(self.root/'LuaConsoleCommand.txt'),
+            'transition_file':str(self.editor.root/'project-transition.txt'),
             'bootstrap_project_name':self.boot,
             'project_name':self.name,'mailbox':str(self.editor.root),'media_root':str(self.media),
             'fixture':str(self.fixture),'service_script':str(self.service),
@@ -53,6 +57,8 @@ class EditValidationTests(unittest.TestCase):
         self.assertEqual((report['verified']['start_frame'],report['verified']['end_frame']),(0,60))
         self.assertFalse((self.editor.root/'approval.txt').exists())
         self.assertEqual(list(self.live.api.mutations.values()).count('CloseBootstrap'),1)
+        self.assertEqual(report['project_transition_authentication'],'PASS')
+        self.assertEqual(report['project_transition']['outcome'],'READY_TO_CREATE')
         self.assertFalse((self.editor.root/'bootstrap-approval.txt').exists())
         with self.assertRaises(FileExistsError):self.run_validation()
 
@@ -82,6 +88,15 @@ class EditValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'integrity mismatch'):self.run_validation()
         self.assertFalse((self.editor.root/'approval.txt').exists())
 
+    def test_old_session_and_tampered_console_command_are_rejected_before_execution(self):
+        original=json.loads(self.info.read_text())
+        for updates in [{'edit_validation_format':2},{'console_command':'arbitrary code'}]:
+            with self.subTest(updates=updates):
+                self.info.write_text(json.dumps({**original,**updates}))
+                with self.assertRaises(ValueError):self.run_validation()
+                self.assertFalse((self.root/'started.json').exists())
+                self.assertFalse((self.editor.root/'approval.txt').exists())
+
     def test_existing_name_among_mixed_values_is_rejected_before_creation(self):
         with self.bridge('fixture.project_names={17,"'+self.name+'",count=1}'):
             report=self.run_validation()
@@ -108,6 +123,7 @@ class EditValidationTests(unittest.TestCase):
         with self.bridge('fixture.after_close=fixture.protected_project'):report=self.run_validation()
         self.assertEqual(report['error_code'],'WRITE_DENIED',report)
         self.assertEqual(list(self.live.api.mutations.values()),['CloseBootstrap'])
+        self.assertEqual(report['project_transition']['outcome'],'DIFFERENT_PROJECT_ACTIVE')
 
     def test_bootstrap_revocation_during_enumeration_stops_before_close(self):
         with self.bridge():

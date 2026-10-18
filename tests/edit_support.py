@@ -4,12 +4,13 @@ import secrets
 import time
 
 from resolve_mcp.protocol import request,response
-from resolve_mcp.transport import safe_path, read_data
+from resolve_mcp.transport import safe_path, read_data, atomic_write
 from tests.support import LuaBridge
 
 EDIT_API = r'''
 local f = fixture
 f.protected_project = f.project
+f.protected_project.GetUniqueId=function() return 'protected-project-id' end
 f.mutations = {}
 f.current = nil
 f.project_names = {'테스트_프로젝트','다른_프로젝트'}
@@ -66,6 +67,7 @@ end
 f.manager.CloseProject=function(_,p)
     assert(p==f.bootstrap and p==f.current,'Attempt to close protected project')
     f.mutations[#f.mutations+1]='CloseBootstrap'
+    if f.close_hook then return f.close_hook(p) end
     if f.fail_close then return false end
     f.current=f.after_close
     return true
@@ -166,7 +168,11 @@ class EditBridge(LuaBridge):
             target=safe_path(Path(path))
             assert target.is_dir() if directory else target.is_file() and target.stat().st_nlink == 1
             return str(target).replace('/','\\')
+        self.lua.globals().adapter_write=lambda path,data:atomic_write(Path(path.replace('\\','/')),data.encode('utf-8'))
         adapter=self.lua.table_from({'root':str(mailbox.root),'bridge_id':instance,'read':read,
+            'write':self.lua.eval('function(path,data) adapter_write(path,data) end'),
+            'monotonic_seconds':self.lua.eval('function() return fixture.elapsed or 0 end'),
+            'wait':self.lua.eval('function(seconds) fixture.elapsed=(fixture.elapsed or 0)+seconds; if fixture.on_wait then fixture.on_wait() end end'),
             'canonical_file':lambda path:canonical(path,False),
             'canonical_directory':lambda path:canonical(path,True),'now':time.time,
             'random_hex':lambda:secrets.token_hex(16)})
