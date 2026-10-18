@@ -129,6 +129,19 @@ class ConsoleSessionTests(unittest.TestCase):
 
 
 class UtilityPathTests(unittest.TestCase):
+    def test_launcher_preserves_scoped_host_globals_in_loaded_payload(self):
+        lua=Lua51Runtime(unpack_returned_tuples=True)
+        lua.execute('''
+            payload_chunk=assert(loadstring('return {run=function() observed=ffi.marker end}'))
+            loadfile=function() return payload_chunk end
+            scoped=setmetatable({ffi={marker='scoped host'}},{__index=_G})
+            ffi=nil;print=nil
+        ''')
+        chunk=lua.compile(utility_launcher(Path('C:/private/service.lua'),'a'*32))
+        lua.eval('setfenv')(chunk,lua.globals().scoped)
+        chunk()
+        self.assertEqual(lua.globals().scoped.observed,'scoped host')
+
     def test_tiny_fixed_launcher_catches_payload_compile_failure(self):
         lua=Lua51Runtime(unpack_returned_tuples=True)
         lua.execute('print=nil;loadfile=function(path) return nil,"synthetic compile error" end')
