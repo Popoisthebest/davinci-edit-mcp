@@ -55,15 +55,14 @@ $venvPython = Join-Path $release '.venv\Scripts\python.exe'
 if ($LASTEXITCODE -ne 0) { throw "Installation failed; previous installation unchanged. Backup: $stamp" }
 & $venvPython -m pip check
 if ($LASTEXITCODE -ne 0) { throw 'Dependency compatibility check failed' }
-$entry = (& $venvPython -c 'import pathlib,resolve_mcp; print(pathlib.Path(resolve_mcp.__file__).parent/"bridge"/"ResolveMCP3.lua")').Trim()
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entry)) { throw 'Installed Lua entry missing' }
 # Initialize only the new mailbox. No Fusion.prefs or v0.2 files are touched.
 & $venvPython -c 'from resolve_mcp.transport import Mailbox; Mailbox()'
 if ($LASTEXITCODE -ne 0) { throw 'Mailbox initialization failed' }
-$loader = 'dofile("' + $entry.Replace('\','\\').Replace('"','\"') + '")' + "`n"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $utility) | Out-Null
 $newUtility = "$utility.$stamp.tmp"
-[IO.File]::WriteAllText($newUtility, $loader, (New-Object Text.UTF8Encoding($false)))
+# Self-contained trusted factories: no package system/debug/path bootstrap needed.
+& $venvPython -m resolve_mcp.bundle --output $newUtility
+if ($LASTEXITCODE -ne 0) { throw 'Lua bundle generation failed; active installation unchanged' }
 $manifest = @{ version = $version; python = $venvPython; utility = $utility; backup = $stamp }
 $newActive = "$active.$stamp.tmp"
 [IO.File]::WriteAllText($newActive, ($manifest | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))

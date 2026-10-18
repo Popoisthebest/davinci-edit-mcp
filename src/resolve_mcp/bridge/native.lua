@@ -1,9 +1,13 @@
 -- Windows LuaJIT file adapter. Works without a global io table.
 -- Only fixed mailbox paths are used by v0.3; no command execution is exposed.
-local ffi = require('ffi')
+local module = ...
+local ffi = module('runtime').ffi()
+local bit = module('runtime').bit()
 assert(ffi.os == 'Windows', 'Windows LuaJIT is required by the live bridge')
 ffi.cdef[[
 unsigned long GetLastError(void);
+unsigned long GetCurrentProcessId(void);
+int CreateDirectoryW(const wchar_t*,void*);
 unsigned long GetFileAttributesW(const wchar_t*);
 int MultiByteToWideChar(unsigned int,unsigned long,const char*,int,wchar_t*,int);
 int WideCharToMultiByte(unsigned int,unsigned long,const wchar_t*,int,char*,int,const char*,int*);
@@ -45,6 +49,12 @@ function M.root()
     assert(length > 0 and length < 32768, 'LOCALAPPDATA unavailable')
     return utf8(output,length) .. '\\ResolveMCPNext\\mailbox'
 end
+function M.ffi_call_test()
+    local value = ffi.new('int[1]',42)
+    assert(ffi.typeof('int') and value[0] == 42,'FFI allocation/type test failed')
+    assert(K.GetCurrentProcessId() > 0,'Win32 FFI call failed')
+    return true
+end
 function M.random_hex()
     local buffer = ffi.new('unsigned char[16]')
     assert(A.SystemFunction036(buffer,16) ~= 0, 'Secure random source unavailable')
@@ -61,10 +71,20 @@ local function check_path(path)
         current = current .. segment
         local attributes = K.GetFileAttributesW(wide(current))
         if attributes ~= 4294967295 then
-            assert(require('bit').band(attributes,1024) == 0, 'Reparse points are forbidden')
+            assert(bit.band(attributes,1024) == 0, 'Reparse points are forbidden')
         end
         current = current .. '\\'
     end
+end
+function M.create_probe_directory(parent,context)
+    assert(context == 'Console' or context == 'Utility' or context == 'CI','Invalid probe context')
+    check_path(parent)
+    local attributes = K.GetFileAttributesW(wide(parent))
+    assert(attributes ~= 4294967295 and bit.band(attributes,16) ~= 0,'Prepared probe directory is required')
+    local path = parent .. '\\' .. context .. '-' .. M.random_hex()
+    check_path(path)
+    assert(K.CreateDirectoryW(wide(path),nil) ~= 0,'Cannot create new probe directory')
+    return path
 end
 function M.read(path)
     check_path(path)

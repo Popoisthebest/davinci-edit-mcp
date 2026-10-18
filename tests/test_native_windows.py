@@ -5,14 +5,15 @@ import unittest
 
 from lupa.luajit21 import LuaRuntime
 from resolve_mcp.transport import atomic_write, read_data
-from tests.support import BRIDGE
+from tests.support import BRIDGE, restricted_loader
 
 
 @unittest.skipUnless(os.name == 'nt', 'Requires actual Windows kernel file/mutex APIs')
 class NativeWindowsTests(unittest.TestCase):
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
-        self.native = self.lua.execute((BRIDGE/'native.lua').read_text(encoding='utf-8'))
+        self.modules=restricted_loader(self.lua)
+        self.native = self.modules('native')
 
     def test_unicode_file_atomic_replace_and_missing(self):
         with TemporaryDirectory() as temporary:
