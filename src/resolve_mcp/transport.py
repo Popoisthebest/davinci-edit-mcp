@@ -29,10 +29,14 @@ def safe_path(path: Path) -> Path:
     if '..' in path.parts:
         raise BridgeError("UNSAFE_PATH", "Parent traversal is not allowed")
     for component in [path, *path.parents]:
-        if component.exists() or component.is_symlink():
+        try:
             info = component.lstat()
-            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-                raise BridgeError("UNSAFE_PATH", "Symlinks and reparse points are not allowed")
+        except FileNotFoundError:
+            # An atomic replacement can temporarily remove a mailbox filename.
+            # lstat also detects dangling symlinks, without an exists/stat race.
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise BridgeError("UNSAFE_PATH", "Symlinks and reparse points are not allowed")
     return path
 
 

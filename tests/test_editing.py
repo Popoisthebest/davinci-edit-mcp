@@ -5,6 +5,7 @@ import secrets
 from tempfile import TemporaryDirectory
 import time
 import unittest
+from unittest.mock import patch
 
 from resolve_mcp.editing import Editor,approve,load_approval,prepare_media_root
 from resolve_mcp.protocol import BridgeError,request,response
@@ -289,7 +290,12 @@ class EditingTests(unittest.TestCase):
 
     def test_timed_out_write_is_not_repeated_and_can_be_inspected(self):
         self.box.timeout=0.05
-        with FileBridge(self.box,delay=0.15,factory=EditBridge) as bridge:
+        # Give the packet a deterministic one-second TTL while the client waits
+        # only 50ms. Otherwise wall-clock rounding can expire it before dispatch.
+        def valid_packet(key,rid,instance,op,params,timeout):
+            return request(key,rid,instance,op,params,max(timeout,1))
+        with patch('resolve_mcp.transport.request',side_effect=valid_packet), \
+                FileBridge(self.box,delay=0.15,factory=EditBridge) as bridge:
             self.box.bridge_id=bridge.instance
             with self.assertRaisesRegex(BridgeError,'TIMEOUT'):self.box.call('create_test_project')
             self.box.timeout=1
