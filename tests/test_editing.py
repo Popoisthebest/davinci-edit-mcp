@@ -71,7 +71,9 @@ class EditingTests(unittest.TestCase):
         approve_bootstrap(self.box,load_approval(self.box),name,self.bridge.call('current_project'))
 
     def test_bootstrap_accepts_empty_or_only_numeric_flags_in_all_three_lists(self):
-        for expression in ['{}','{_flags=0}','{_flags=2097152}','{_flags=-2.5}']:
+        for expression in ['{}','{_flags=0}','{_flags=2097152}','{_flags=-2.5}',
+                           '{__flags=0}','{__flags=2097152}','{__flags=-2.5}',
+                           '{_flags=1,__flags=2097152}']:
             with self.subTest(expression=expression):
                 self.bridge=EditBridge(self.box)
                 self.bootstrap_approval()
@@ -94,16 +96,24 @@ class EditingTests(unittest.TestCase):
                     self.assertEqual(self.bridge.api.current.uid,'bootstrap-unique-id')
 
     def test_bootstrap_flags_never_hide_real_sparse_or_named_items(self):
-        self.assert_bootstrap_lists_denied([
-            '{_flags=2097152,[1]={}}','{_flags=0,[9]={}}',
-            '{_flags=0,[0]=false}','{_flags=0,render_job={}}',
-        ])
+        for key in ['_flags','__flags']:
+            self.assert_bootstrap_lists_denied([
+                '{'+key+'=2097152,[1]={}}','{'+key+'=0,[9]={}}',
+                '{'+key+'=0,[0]=false}','{'+key+'=0,render_job={}}',
+            ])
+        self.assert_bootstrap_lists_denied(['{_flags=0,__flags=0,[9]={}}'])
 
     def test_bootstrap_rejects_unknown_metadata_or_malformed_flags_in_each_list(self):
+        for key in ['_flags','__flags']:
+            self.assert_bootstrap_lists_denied([
+                '{'+key+"='0'}",'{'+key+'=false}','{'+key+'={}}','{'+key+'=function() end}',
+                '{'+key+'=math.huge}','{'+key+'=-math.huge}','{'+key+'=0/0}',
+                '{'+key+'=0,_count=0}','{'+key+'=0,items={}}',
+            ])
         self.assert_bootstrap_lists_denied([
-            "{_flags='0'}",'{_flags=false}','{_flags={}}','{_flags=function() end}',
-            '{_flags=math.huge}','{_flags=-math.huge}','{_flags=0/0}',
-            '{_flags=0,_count=0}','{_FLAGS=0}','{_flags=0,items={}}',
+            '{_FLAGS=0}','{___flags=0}','{__Flags=0}',
+            "{_flags=0,__flags='0'}","{_flags='0',__flags=0}",
+            '{_flags=0,__flags=math.huge}','{_flags=0,__flags=0,unexpected=0}',
         ])
 
     def test_bootstrap_rejects_non_table_and_metatable_list_structures(self):
@@ -111,6 +121,8 @@ class EditingTests(unittest.TestCase):
             'nil','false','0',"'empty'",'function() return {} end','ffi.new("int",0)',
             'setmetatable({_flags=0},{__index={hidden_item={}}})',
             'setmetatable({_flags=0,[1]={}},{__pairs=function() error("must not run") end})',
+            'setmetatable({__flags=0},{})',
+            'setmetatable({__flags=0,[9]={}},{__pairs=function() error("must not run") end})',
         ])
 
     def test_numeric_flags_do_not_relax_timeline_guards(self):

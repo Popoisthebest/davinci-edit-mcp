@@ -49,12 +49,12 @@ function M.new(resolve,codec,crypto,key,adapter,invoke)
         return {name=name,id=id}
     end
     local function empty_sdk_list(list)
-        -- Resolve can return {_flags=<number>} for an empty SDK list.
-        -- This is the only metadata exception. Do not use #/ipairs here:
+        -- Resolve Windows returns {__flags=<number>} for an empty SDK list.
+        -- Allow only this key and the _flags alias. Do not use #/ipairs here:
         -- sparse or named entries must still prevent closing the project.
         if type(list)~='table' or getmetatable(list)~=nil then return false end
         for name,value in next,list do
-            if name~='_flags' or type(value)~='number' or value~=value
+            if (name~='_flags' and name~='__flags') or type(value)~='number' or value~=value
                 or value==math.huge or value==-math.huge then return false end
         end
         return true

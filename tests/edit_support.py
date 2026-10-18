@@ -52,7 +52,7 @@ f.manager.GetCurrentProject=function() return f.current end
 f.manager.GetProjectListInCurrentFolder=function() return f.project_names end
 f.make_bootstrap=function(name)
     -- Reproduce the Windows Resolve empty-list shape in every edit workflow.
-    local p={name=name,uid='bootstrap-unique-id',clips={_flags=2097152},folders={_flags=2097152},jobs={_flags=2097152},timelines=0}
+    local p={name=name,uid='bootstrap-unique-id',clips={__flags=2097152},folders={__flags=2097152},jobs={__flags=2097152},timelines=0}
     p.GetUniqueId=function() return p.uid end
     p.GetName=function() return p.name end
     p.GetTimelineCount=function() return p.timelines end
